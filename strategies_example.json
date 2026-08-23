@@ -1,0 +1,1 @@
+{"name":"Golden cross","entry_rules":[{"left":"sma50","op":"crosses_above","right":"sma200"}],"exit_rules":[{"left":"sma50","op":"crosses_below","right":"sma200"}]}
