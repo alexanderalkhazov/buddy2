@@ -111,7 +111,7 @@ def _combine(signals: list[pd.Series], logic: str, index: pd.Index) -> pd.Series
     return stacked.all(axis=1) if logic == "all" else stacked.any(axis=1)
 
 
-def run(
+def _build_portfolio(
     ticker: str,
     spec: StrategySpec | dict,
     init_cash: float = 10_000,
@@ -119,22 +119,10 @@ def run(
     slippage: float = 0.0005,
     start_date: str | None = None,
     end_date: str | None = None,
-) -> dict:
-    """Backtest a spec against cached history and report the headline risk metrics.
-
-    start_date/end_date (inclusive, "YYYY-MM-DD") restrict which bars are actually
-    traded, while indicators are still computed from the FULL cached history first —
-    so a strategy using e.g. sma200 keeps a correct warm-up window even when the
-    trading window starts partway through. Used by run_out_of_sample() to split one
-    continuous history into an in-sample fitting period and an out-of-sample holdout
-    without recomputing indicators on a truncated series (which would shift SMA/RSI
-    values near the start of the holdout window).
-
-    slippage defaults to 0.05% per trade (vectorbt's slippage param, applied as an
-    adverse price move on both entry and exit) — a conservative, non-zero default so
-    a strategy's edge isn't silently overstated by assuming perfect fills. Set to 0.0
-    to match the old zero-slippage behavior.
-    """
+):
+    """Shared portfolio-construction logic behind run() and monte_carlo_bootstrap()
+    — keeps both consistent (same signal evaluation, same risk_kwargs handling)
+    without duplicating it. Returns (portfolio, spec, df)."""
     if isinstance(spec, dict):
         spec = StrategySpec.from_dict(spec)
     if not spec.entry_rules:
@@ -161,6 +149,36 @@ def run(
     portfolio = vbt.Portfolio.from_signals(
         df["close"], entries, exits, init_cash=init_cash, fees=fees, slippage=slippage, freq="1D", **risk_kwargs
     )
+    return portfolio, spec, df
+
+
+def run(
+    ticker: str,
+    spec: StrategySpec | dict,
+    init_cash: float = 10_000,
+    fees: float = 0.001,
+    slippage: float = 0.0005,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict:
+    """Backtest a spec against cached history and report the headline risk metrics.
+
+    start_date/end_date (inclusive, "YYYY-MM-DD") restrict which bars are actually
+    traded, while indicators are still computed from the FULL cached history first —
+    so a strategy using e.g. sma200 keeps a correct warm-up window even when the
+    trading window starts partway through. Used by run_out_of_sample() to split one
+    continuous history into an in-sample fitting period and an out-of-sample holdout
+    without recomputing indicators on a truncated series (which would shift SMA/RSI
+    values near the start of the holdout window).
+
+    slippage defaults to 0.05% per trade (vectorbt's slippage param, applied as an
+    adverse price move on both entry and exit) — a conservative, non-zero default so
+    a strategy's edge isn't silently overstated by assuming perfect fills. Set to 0.0
+    to match the old zero-slippage behavior.
+    """
+    portfolio, spec, df = _build_portfolio(
+        ticker, spec, init_cash=init_cash, fees=fees, slippage=slippage, start_date=start_date, end_date=end_date
+    )
 
     trades = portfolio.trades
     n_trades = int(trades.count())
@@ -170,7 +188,9 @@ def run(
             out = float(value)
         except (TypeError, ValueError):
             return None
-        return None if np.isnan(out) else round(out, 4)
+        # inf/-inf shows up when e.g. a window has 0 trades or no losing trades
+        # (profit_factor, Sharpe) — not a meaningful number, treat like NaN.
+        return None if np.isnan(out) or np.isinf(out) else round(out, 4)
 
     # A fact about the number, not a confidence judgment about what it means — "is
     # 30 trades enough to trust a 50% win rate" is a statistical question with a real
@@ -308,6 +328,161 @@ def run_out_of_sample(ticker: str, spec: StrategySpec | dict, split_pct: float =
             "result is a real warning sign about overfitting; a preserved result is "
             "reassuring but still not proof of a persistent edge, since both windows are "
             "still just one ticker's one historical path."
+        ),
+    }
+
+
+def run_regime_windows(ticker: str, spec: StrategySpec | dict, n_windows: int = 4, **kwargs) -> dict:
+    """Splits the cached history into n_windows consecutive, roughly equal-length
+    calendar windows and runs the same spec independently on each — instead of one
+    combined 5-year backtest, this shows whether the strategy's edge held up across
+    genuinely different sub-periods (e.g. a period where the stock was flat or
+    falling vs. one where it ran hard), or whether the aggregate number is being
+    carried by one exceptional window. Each window is labeled by its own realized
+    buy-and-hold return (bull/bear/flat) and realized volatility (low/mid/high
+    relative to the OTHER windows in this same run) — both computed from this
+    ticker's own history, not calibrated against any external market classification.
+    """
+    if n_windows < 2:
+        raise ValueError("n_windows must be at least 2")
+
+    df = cache.get_ohlcv(ticker).dropna(subset=["close"])
+    if df.empty:
+        raise ValueError(f"no price data for {ticker!r}")
+
+    boundaries = [df.index[min(int(len(df) * i / n_windows), len(df) - 1)] for i in range(n_windows + 1)]
+    boundaries[-1] = df.index[-1]
+
+    window_vols = []
+    raw_windows = []
+    for i in range(n_windows):
+        start, end = boundaries[i], boundaries[i + 1]
+        seg = df[(df.index >= start) & (df.index <= end)]
+        if len(seg) < 5:
+            continue
+        daily_returns = seg["close"].pct_change().dropna()
+        vol = float(daily_returns.std() * (252 ** 0.5) * 100) if len(daily_returns) > 1 else None
+        bh_return = float(seg["close"].iloc[-1] / seg["close"].iloc[0] - 1) * 100
+        raw_windows.append({"start": str(start.date()), "end": str(end.date()), "bh_return_pct": round(bh_return, 2), "vol": vol})
+        if vol is not None:
+            window_vols.append(vol)
+
+    vol_terciles = sorted(window_vols)
+    def _vol_label(v):
+        if v is None or not vol_terciles:
+            return "UNKNOWN"
+        idx = vol_terciles.index(v)
+        third = max(1, len(vol_terciles) // 3)
+        if idx < third:
+            return "LOW (relative to this ticker's other tested windows)"
+        if idx >= len(vol_terciles) - third:
+            return "HIGH (relative to this ticker's other tested windows)"
+        return "MID (relative to this ticker's other tested windows)"
+
+    results = []
+    for w in raw_windows:
+        try:
+            r = run(ticker, spec, start_date=w["start"], end_date=w["end"], **kwargs)
+        except Exception as exc:
+            results.append({**w, "error": f"{type(exc).__name__}: {exc}"})
+            continue
+        results.append(
+            {
+                **w,
+                "market_regime_label": "bull" if w["bh_return_pct"] > 10 else "bear" if w["bh_return_pct"] < -10 else "flat",
+                "volatility_label": _vol_label(w["vol"]),
+                "trades": r.get("trades"),
+                "sharpe_ratio": r.get("sharpe_ratio"),
+                "strategy_cagr_pct": r.get("strategy_cagr_pct"),
+                "outperformed_buy_and_hold": r.get("outperformed_buy_and_hold"),
+                "max_drawdown_pct": r.get("max_drawdown_pct"),
+                "win_rate_pct": r.get("win_rate_pct"),
+            }
+        )
+
+    sharpes = [r["sharpe_ratio"] for r in results if r.get("sharpe_ratio") is not None]
+    consistent = None
+    if len(sharpes) >= 2:
+        consistent = sum(1 for s in sharpes if s > 0) == len(sharpes) or sum(1 for s in sharpes if s <= 0) == len(sharpes)
+
+    return {
+        "ticker": ticker.upper(),
+        "n_windows": len(results),
+        "windows": results,
+        "sharpe_consistent_sign_across_windows": consistent,
+        "note": (
+            "Each window is this ticker's OWN sub-period, not a labeled external bull/bear market — "
+            "market_regime_label and volatility_label are both derived purely from this ticker's own "
+            "price path in this run, not an independent market classification. "
+            "sharpe_consistent_sign_across_windows is a rough flag: if Sharpe flips sign between "
+            "windows, the aggregate backtest number may be dominated by one unusually strong or weak "
+            "period rather than a repeatable pattern. Still not proof either way — each window remains "
+            "a single historical path for a single ticker."
+        ),
+    }
+
+
+def monte_carlo_bootstrap(ticker: str, spec: StrategySpec | dict, n_sims: int = 2000, seed: int | None = None, **kwargs) -> dict:
+    """Bootstrap-resample this backtest's own trade sequence (with replacement) to
+    see the range of outcomes that same set of trades could have produced in a
+    different order — NOT a simulation of different trades, just different
+    orderings/repetitions of the ones that actually occurred. This isolates
+    path-dependency (a few early wins/losses skewing the single actual sequence)
+    from the trades' underlying distribution, but it does NOT create new
+    information: if the strategy only had 23 trades, this is still built from
+    those same 23 trades' return distribution, resampled.
+    """
+    import numpy as np
+
+    portfolio, resolved_spec, _df = _build_portfolio(ticker, spec, **kwargs)
+    trades = portfolio.trades
+    n_trades = int(trades.count())
+    if n_trades < 5:
+        return {"error": f"only {n_trades} trades — too few to bootstrap meaningfully (need at least 5)"}
+
+    trade_returns = np.asarray(trades.returns.values, dtype=float)
+    full = run(ticker, spec, **kwargs)
+
+    rng = np.random.default_rng(seed)
+    sim_totals = []
+    sim_max_drawdowns = []
+    for _ in range(n_sims):
+        sample = rng.choice(trade_returns, size=n_trades, replace=True)
+        equity = np.cumprod(1 + sample)
+        sim_totals.append(equity[-1] - 1)
+        running_max = np.maximum.accumulate(equity)
+        drawdown = (equity - running_max) / running_max
+        sim_max_drawdowns.append(drawdown.min())
+
+    sim_totals = np.array(sim_totals) * 100
+    sim_max_drawdowns = np.array(sim_max_drawdowns) * 100
+    prob_loss = float((sim_totals < 0).mean() * 100)
+
+    return {
+        "ticker": ticker.upper(),
+        "strategy": full.get("strategy"),
+        "n_trades": n_trades,
+        "n_simulations": n_sims,
+        "actual_total_return_pct": full.get("total_return_pct"),
+        "bootstrap_total_return_pct": {
+            "p5": round(float(np.percentile(sim_totals, 5)), 2),
+            "median": round(float(np.percentile(sim_totals, 50)), 2),
+            "p95": round(float(np.percentile(sim_totals, 95)), 2),
+        },
+        "bootstrap_max_drawdown_pct": {
+            "p5_best_case": round(float(np.percentile(sim_max_drawdowns, 95)), 2),
+            "median": round(float(np.percentile(sim_max_drawdowns, 50)), 2),
+            "p95_worst_case": round(float(np.percentile(sim_max_drawdowns, 5)), 2),
+        },
+        "probability_of_loss_pct": round(prob_loss, 1),
+        "note": (
+            f"Resamples this strategy's own {n_trades} historical trade returns (with replacement, "
+            f"{n_sims} simulations) to show the range of outcomes their ORDER/repetition alone could "
+            "produce — this does NOT simulate new trades or new market conditions, only different "
+            "sequences of the same trades that already happened. With under ~30 trades this range is "
+            "wide and should be read as 'here is the path-dependency risk in the trades we have,' not "
+            "as a validated probability distribution of future returns. probability_of_loss_pct is the "
+            "share of simulated resequencings that ended net negative."
         ),
     }
 

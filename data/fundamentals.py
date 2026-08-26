@@ -8,6 +8,7 @@ None (not fetched) for non-equity assets rather than silently attempted and fail
 
 from __future__ import annotations
 
+import pandas as pd
 import yfinance as yf
 
 # yfinance's quoteType values. EQUITY is the only class with P/E, margins, earnings,
@@ -296,6 +297,90 @@ def estimate_dispersion(ticker: str, period: str = "+1y") -> dict:
         )
 
     return out
+
+
+def earnings_reaction_history(ticker: str, limit: int = 8) -> dict:
+    """How did the stock actually move in the days after each of its last N
+    reported earnings? Distinct from earnings_surprise_pct alone — a company can
+    beat estimates and still sell off (e.g. on weak guidance), so this checks the
+    ACTUAL subsequent price action against the CACHED daily-close history already
+    in this system, not just the EPS-beat number. Uses yfinance's earnings_dates
+    (exact announcement timestamps), not earnings_history's fiscal-quarter-end
+    dates, which are not the same as the day the market actually reacted."""
+    t = yf.Ticker(ticker)
+    try:
+        dates_df = t.earnings_dates
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+    if dates_df is None or dates_df.empty:
+        return {"error": "no earnings date history available"}
+
+    reported = dates_df.dropna(subset=["Reported EPS"]).sort_index(ascending=False).head(limit)
+    if reported.empty:
+        return {"error": "no past reported earnings found"}
+
+    from storage.cache import get_ohlcv
+
+    try:
+        prices = get_ohlcv(ticker)
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+    events = []
+    for ts, row in reported.iterrows():
+        report_date = ts.tz_localize(None) if ts.tzinfo else ts
+        # Earnings announced after market close (>=16:00) react on the NEXT trading
+        # day; before/during market hours react same day. This matters — using the
+        # wrong anchor day silently shifts every subsequent return by one session.
+        anchor_date = report_date.normalize() + pd.Timedelta(days=1 if ts.hour >= 16 else 0)
+        after = prices[prices.index >= anchor_date]
+        before = prices[prices.index < anchor_date]
+        if after.empty or before.empty:
+            continue
+        base_close = float(before["close"].iloc[-1])
+
+        reaction = {"report_date": str(report_date.date()), "eps_surprise_pct": _num(row.get("Surprise(%)"))}
+        for label, n_days in (("1d", 1), ("5d", 5), ("10d", 10)):
+            window = after.iloc[: n_days]
+            if len(window) < n_days or base_close == 0:
+                reaction[f"return_{label}_pct"] = None
+                continue
+            reaction[f"return_{label}_pct"] = round((float(window["close"].iloc[-1]) / base_close - 1) * 100, 2)
+        events.append(reaction)
+
+    if not events:
+        return {"error": "no earnings events overlap with cached price history"}
+
+    def _agg(field: str) -> dict:
+        vals = [e[field] for e in events if e.get(field) is not None]
+        if not vals:
+            return {"median_pct": None, "positive_pct_of_events": None, "n": 0}
+        return {
+            "median_pct": round(sorted(vals)[len(vals) // 2], 2),
+            "positive_pct_of_events": round(sum(1 for v in vals if v > 0) / len(vals) * 100, 1),
+            "n": len(vals),
+        }
+
+    return {
+        "ticker": ticker.upper(),
+        "events": events,
+        "aggregate": {
+            "return_1d": _agg("return_1d_pct"),
+            "return_5d": _agg("return_5d_pct"),
+            "return_10d": _agg("return_10d_pct"),
+        },
+        "note": (
+            f"Actual price reaction over the {len(events)} most recent reported earnings dates "
+            "found in cached price history, anchored the trading day after an after-close report "
+            "(or same-day for a before-close/premarket report). This is real historical price "
+            "action, not a forecast of how the NEXT earnings reaction will go — sample size is "
+            "small (typically under 10 events) and each company's guidance/market conditions "
+            "differ event to event. A stock can beat EPS estimates and still sell off (weak "
+            "guidance, 'sell the news') — eps_surprise_pct and return_1d_pct are reported "
+            "separately for exactly this reason; do not assume they move together."
+        ),
+    }
 
 
 def insider_activity(ticker: str, limit: int = 10) -> dict:

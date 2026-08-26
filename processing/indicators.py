@@ -189,6 +189,13 @@ def snapshot(ticker: str, df: pd.DataFrame) -> PriceSnapshot:
         bb_lower=_f(row["bb_lower"]),
         atr14=_f(row["atr14"]),
         volume=_f(row["volume"]),
-        vol_vs_30d_avg=_f(row["volume"] / row["vol_avg30"]) if not pd.isna(row["vol_avg30"]) else None,
+        # Index/rate tickers (^VIX, ^TNX, etc.) commonly report volume=0, making
+        # this a 0/0 division — not a NaN input, so the pd.isna guard alone lets it
+        # through and numpy warns on the resulting NaN. Guard the zero case too.
+        vol_vs_30d_avg=(
+            _f(row["volume"] / row["vol_avg30"])
+            if not pd.isna(row["vol_avg30"]) and row["vol_avg30"] != 0
+            else None
+        ),
         trend=_trend_label(last, _f(row["sma20"]), _f(row["sma50"]), _f(row["sma200"])),
     )

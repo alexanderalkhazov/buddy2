@@ -14,8 +14,10 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from data.fundamentals import estimate_dispersion, eps_revision_history, insider_activity
+from data.fundamentals import earnings_reaction_history, estimate_dispersion, eps_revision_history, insider_activity
+from data import macro as macro_mod_data
 from processing import backtest, bundle, regime, relative_strength, scoring, valuation
+from processing import macro as macro_mod
 from processing.strategies import get_spec
 from storage import cache
 from storage.cache import get_ohlcv
@@ -280,6 +282,32 @@ def generate(ticker: str, refresh: bool = False, include_backtest: bool = True) 
             ],
         )
 
+        erh = earnings_reaction_history(ticker)
+        lines.append("\n### 8a. Earnings Reaction History — actual price moves after past reports")
+        if "error" not in erh:
+            lines += _table(
+                ["Report Date", "EPS Surprise", "1d Return", "5d Return", "10d Return"],
+                [
+                    [
+                        e["report_date"],
+                        (f"{e['eps_surprise_pct']}%" if e.get("eps_surprise_pct") is not None else NA),
+                        (f"{e['return_1d_pct']}%" if e.get("return_1d_pct") is not None else NA),
+                        (f"{e['return_5d_pct']}%" if e.get("return_5d_pct") is not None else NA),
+                        (f"{e['return_10d_pct']}%" if e.get("return_10d_pct") is not None else NA),
+                    ]
+                    for e in erh["events"]
+                ],
+            )
+            agg = erh["aggregate"]
+            lines.append(
+                f"\nMedian reaction: {agg['return_1d']['median_pct']}% (1d), {agg['return_5d']['median_pct']}% (5d), "
+                f"{agg['return_10d']['median_pct']}% (10d). Positive 1-day reaction in "
+                f"{agg['return_1d']['positive_pct_of_events']}% of the last {agg['return_1d']['n']} reports."
+            )
+            lines.append(f"\n{erh.get('note')}")
+        else:
+            lines.append(NA)
+
         lines.append("\n## 9. Estimates & Consensus")
         lines.append("**EXTERNAL CONSENSUS — NOT MODEL JUDGMENT**")
         es = fund.get("external_sentiment") or {}
@@ -372,13 +400,47 @@ def generate(ticker: str, refresh: bool = False, include_backtest: bool = True) 
         lines.append(NA)
 
     lines.append("\n## 11. Macro / Market Context")
+
+    lines.append("\n### 11a. Market-Based Proxies (daily-close pricing)")
+    try:
+        mp = macro_mod.market_proxies()
+    except Exception as exc:
+        mp = {"error": f"{type(exc).__name__}: {exc}"}
+    if "error" not in mp:
+        rows = [[v["label"], f"{_fmt(v['last'])}", (f"{v['change_pct']}%" if v.get("change_pct") is not None else NA)] for k, v in mp.items() if isinstance(v, dict) and "last" in v]
+        lines += _table(["Instrument", "Last", "Daily Change"], rows)
+        if mp.get("yield_curve_10y_minus_13w_pct_points") is not None:
+            lines += _table(["Metric", "Value"], [["Yield curve (10Y minus 13W), percentage points", f"{mp['yield_curve_10y_minus_13w_pct_points']:+.2f}"]])
+        lines.append(f"\n{mp.get('note', '')}")
+        if mp.get("yield_curve_note"):
+            lines.append(f"\n{mp['yield_curve_note']}")
+    else:
+        lines.append(NA)
+
+    lines.append("\n### 11b. Official Economic Indicators — EXTERNAL SOURCE (FRED) — LAGGED, SUBJECT TO REVISION")
+    try:
+        econ = macro_mod_data.economic_indicators()
+    except Exception as exc:
+        econ = {"error": f"{type(exc).__name__}: {exc}"}
+    if "error" not in econ:
+        rows = []
+        for series_id, v in econ.items():
+            if series_id == "note" or "error" in v:
+                continue
+            rows.append([v["label"], v["as_of"], _fmt(v["value"]), _fmt(v.get("prior_value")), _fmt(v.get("change"))])
+        lines += _table(["Indicator", "As Of (period described)", "Value", "Prior", "Change"], rows)
+        lines.append(f"\n{econ.get('note', '')}")
+    else:
+        lines.append(NA)
+
+    lines.append("\n### 11c. Prediction Markets (Polymarket)")
     if b.get("polymarket_related"):
         lines += _table(
             ["Market", "Odds", "Volume"],
             [[m["market"], _fmt(m.get("odds")), _fmt(m.get("volume"))] for m in b["polymarket_related"]],
         )
     else:
-        lines.append(NA)
+        lines.append("N/A — no related markets found, or the Polymarket API was unreachable this run.")
 
     lines.append("\n## 12. Historical Performance")
     df = get_ohlcv(ticker)
@@ -455,12 +517,65 @@ def generate(ticker: str, refresh: bool = False, include_backtest: bool = True) 
                     "a fixed, non-statistical heuristic (out-of-sample Sharpe under half the in-sample Sharpe, "
                     "or flipped from positive to non-positive). Not a significance test."
                 )
+
+            try:
+                rw = backtest.run_regime_windows(ticker, get_spec(top["template"]))
+            except Exception:
+                rw = None
+            if rw and rw.get("windows"):
+                lines.append(f"\n### Regime-Window Test — {rw['n_windows']} sub-periods of this ticker's own price history")
+                lines += _table(
+                    ["Period", "Buy&Hold Return", "Regime Label", "Volatility Label", "Trades", "Sharpe", "Strategy CAGR", "Outperformed B&H"],
+                    [
+                        (
+                            [f"{w['start']} to {w['end']}", "", "", "", "", "", "", f"ERROR: {w['error']}"]
+                            if "error" in w else
+                            [
+                                f"{w['start']} to {w['end']}",
+                                f"{w.get('bh_return_pct')}%",
+                                w.get("market_regime_label"),
+                                w.get("volatility_label"),
+                                _fmt(w.get("trades")),
+                                _fmt(w.get("sharpe_ratio")),
+                                f"{_fmt(w.get('strategy_cagr_pct'))}%",
+                                str(w.get("outperformed_buy_and_hold")),
+                            ]
+                        )
+                        for w in rw["windows"]
+                    ],
+                )
+                lines.append(f"\nsharpe_consistent_sign_across_windows: {rw.get('sharpe_consistent_sign_across_windows')}")
+                lines.append(f"\n{rw.get('note')}")
+
+            try:
+                mc = backtest.monte_carlo_bootstrap(ticker, get_spec(top["template"]), n_sims=2000, seed=42)
+            except Exception:
+                mc = None
+            if mc and "error" not in mc:
+                lines.append(f"\n### Monte Carlo Bootstrap — {mc['n_simulations']} resamples of {mc['n_trades']} actual trades")
+                lines += _table(
+                    ["Metric", "Value"],
+                    [
+                        ["Actual total return", f"{mc.get('actual_total_return_pct')}%"],
+                        ["Bootstrap total return — 5th percentile", f"{mc['bootstrap_total_return_pct']['p5']}%"],
+                        ["Bootstrap total return — median", f"{mc['bootstrap_total_return_pct']['median']}%"],
+                        ["Bootstrap total return — 95th percentile", f"{mc['bootstrap_total_return_pct']['p95']}%"],
+                        ["Bootstrap max drawdown — best case (95th pct)", f"{mc['bootstrap_max_drawdown_pct']['p5_best_case']}%"],
+                        ["Bootstrap max drawdown — median", f"{mc['bootstrap_max_drawdown_pct']['median']}%"],
+                        ["Bootstrap max drawdown — worst case (5th pct)", f"{mc['bootstrap_max_drawdown_pct']['p95_worst_case']}%"],
+                        ["Probability of net loss (resampled)", f"{mc.get('probability_of_loss_pct')}%"],
+                    ],
+                )
+                lines.append(f"\n{mc.get('note')}")
+            elif mc and "error" in mc:
+                lines.append(f"\n### Monte Carlo Bootstrap\n{mc['error']}")
         else:
             lines.append(NA)
 
     lines.append("\n## 14a. Trade Levels — CONDITIONAL CALCULATION FOR A HYPOTHETICAL LONG POSITION — NOT A RECOMMENDATION")
-    tl = scoring.trade_levels(price["last"], price["atr14"])
+    tl = scoring.trade_levels(price["last"], price["atr14"], as_of=fresh["as_of"], next_earnings_date=fund.get("next_earnings_date"))
     if "error" not in tl:
+        ep = tl.get("earnings_proximity", {})
         lines += _table(
             ["Metric", "Value"],
             [
@@ -471,6 +586,9 @@ def generate(ticker: str, refresh: bool = False, include_backtest: bool = True) 
                 [f"Take-profit 2 ({tl['take_profit_2_r_multiple']}R)", _fmt(tl["take_profit_2"])],
                 ["Risk/reward ratio to TP1", f"{tl['risk_reward_ratio_tp1']}:1"],
                 ["Invalidation condition", tl["invalidation"]],
+                ["Earnings proximity severity", ep.get("severity", "UNKNOWN")],
+                ["Calendar days until next earnings", _fmt(ep.get("calendar_days_until_earnings"))],
+                ["Earnings proximity note", ep.get("note", NA)],
             ],
         )
         lines.append(f"\n{tl['note']}")
@@ -488,6 +606,32 @@ def generate(ticker: str, refresh: bool = False, include_backtest: bool = True) 
             ["Estimated fields", "None — all values are directly sourced or deterministic calculations; no field is model-estimated"],
             ["External-consensus fields", "Section 9 (analyst targets/ratings/EPS revisions) and any analyst fields under Section 4"],
             ["Methodology limitations", "Single data provider (yfinance); no independent cross-verification; backtest excludes slippage; sensitivity grid assumptions are inputs, not measured or predicted values"],
+        ],
+    )
+
+    lines.append("\n### 15a. Model Reliability")
+    _oos = locals().get("oos")
+    _rw = locals().get("rw")
+    _disp = locals().get("disp")
+    _erh_agg = locals().get("erh")
+    lines += _table(
+        ["Item", "Status"],
+        [
+            ["Scorecard validity", "Deterministic and reproducible — identical inputs always produce the identical score"],
+            [
+                "Scorecard predictive validity",
+                "NOT AVAILABLE — historical point-in-time fundamentals/valuation inputs are not available in this "
+                "data pipeline (only current-snapshot fundamentals are fetchable). The scorecard should be treated "
+                "as a deterministic research heuristic, not a historically validated predictor of forward returns.",
+            ],
+            ["Technical indicator inputs", "Point-in-time computed from historical bars; no lookahead in indicator calculation itself — this does not independently verify the absence of lookahead in signal timing, order execution, or fill assumptions elsewhere in the backtest engine"],
+            ["Out-of-sample strategy test", "Present — see Section 14" if _oos and "error" not in (_oos or {}) else "Not available for this run"],
+            ["Regime-consistency test", "Present — see Section 14" if _rw and _rw.get("windows") else "Not available for this run"],
+            ["Trade count / statistical significance", "Shown per backtest; no confidence interval computed; samples under ~30 trades are NOT statistically validated"],
+            ["EPS estimate dispersion", f"{_disp['eps_estimate_spread_pct_of_avg']}% spread — see Section 9" if _disp and "error" not in (_disp or {}) else NA],
+            ["Cyclicality / volatility risk labels", f"{b['scorecard'].get('risk_flags', {}).get('cyclicality_risk', 'UNKNOWN')} / {b['scorecard'].get('risk_flags', {}).get('volatility_risk', 'UNKNOWN')}" if is_equity else NA_ASSET_CLASS],
+            ["Earnings-proximity severity (Section 14a)", tl.get("earnings_proximity", {}).get("severity", "UNKNOWN") if "error" not in tl else NA],
+            ["Earnings reaction history sample", f"{len(_erh_agg.get('events', []))} past events — see Section 8a" if _erh_agg and "error" not in (_erh_agg or {}) else NA],
         ],
     )
 

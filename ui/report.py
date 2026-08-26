@@ -12,8 +12,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from data.fundamentals import estimate_dispersion, eps_revision_history, insider_activity
+from data.fundamentals import earnings_reaction_history, estimate_dispersion, eps_revision_history, insider_activity
+from data import macro as macro_mod_data
 from processing import backtest, bundle, compare, portfolio, regime, relative_strength, scoring, valuation
+from processing import macro as macro_mod
 from processing.strategies import get_spec
 
 SYSTEM_BLOCK = """\
@@ -224,6 +226,28 @@ def generate(
             ]
         )
 
+        try:
+            erh = earnings_reaction_history(ticker)
+        except Exception as exc:
+            erh = {"error": f"{type(exc).__name__}: {exc}"}
+        if "error" not in erh:
+            lines.append("\n### Earnings Reaction History — actual price moves after past reports (real data, not a forecast)")
+            lines.append("| Report date | EPS surprise | 1d return | 5d return | 10d return |")
+            lines.append("|---|---|---|---|---|")
+            for e in erh["events"]:
+                lines.append(
+                    f"| {e['report_date']} | {_fmt(e.get('eps_surprise_pct'), '%')} | "
+                    f"{_fmt(e.get('return_1d_pct'), '%')} | {_fmt(e.get('return_5d_pct'), '%')} | {_fmt(e.get('return_10d_pct'), '%')} |"
+                )
+            agg = erh["aggregate"]
+            lines.append(
+                f"\nMedian reaction: {_fmt(agg['return_1d']['median_pct'], '%')} (1d) / "
+                f"{_fmt(agg['return_5d']['median_pct'], '%')} (5d) / {_fmt(agg['return_10d']['median_pct'], '%')} (10d). "
+                f"Positive 1d reaction in {_fmt(agg['return_1d']['positive_pct_of_events'], '%')} of the last "
+                f"{agg['return_1d']['n']} reports."
+            )
+            lines.append(f"\n*{erh.get('note')}*")
+
         lines.append("\n## Cash Flow & Balance Sheet")
         lines += _kv_table(
             [
@@ -422,14 +446,47 @@ def generate(
     else:
         lines.append("No news available." + (f" ({b['news_error']})" if b.get("news_error") else ""))
 
-    lines.append("\n## Macro Context (Polymarket)")
+    lines.append("\n## Macro Context")
+
+    lines.append("\n### Market-Based Proxies (real-time-ish pricing, daily close)")
+    try:
+        mp = macro_mod.market_proxies()
+    except Exception as exc:
+        mp = {"error": f"{type(exc).__name__}: {exc}"}
+    if "error" not in mp:
+        rows = [(v["label"], f"{_fmt(v['last'])} ({_fmt(v.get('change_pct'), '%')})") for k, v in mp.items() if isinstance(v, dict) and "last" in v]
+        lines += _kv_table(rows)
+        if mp.get("yield_curve_10y_minus_13w_pct_points") is not None:
+            lines.append(f"\n**Yield curve (10Y − 13W): {mp['yield_curve_10y_minus_13w_pct_points']:+.2f} pts**")
+            lines.append(f"\n*{mp.get('yield_curve_note')}*")
+        lines.append(f"\n*{mp.get('note')}*")
+    else:
+        lines.append(f"Error: {mp['error']}")
+
+    lines.append("\n### Official Economic Indicators (FRED — lagged, revised, not real-time)")
+    try:
+        econ = macro_mod_data.economic_indicators()
+    except Exception as exc:
+        econ = {"error": f"{type(exc).__name__}: {exc}"}
+    if "error" not in econ:
+        lines.append("| Indicator | As Of | Value | Prior | Change |")
+        lines.append("|---|---|---|---|---|")
+        for series_id, v in econ.items():
+            if series_id == "note" or "error" in v:
+                continue
+            lines.append(f"| {v['label']} | {v['as_of']} | {_fmt(v['value'])}{v['unit'] if v['unit'] != 'index' else ''} | {_fmt(v.get('prior_value'))} | {_fmt(v.get('change'))} |")
+        lines.append(f"\n*{econ.get('note')}*")
+    else:
+        lines.append(f"Error: {econ['error']}")
+
+    lines.append("\n### Prediction Markets (Polymarket)")
     if b.get("polymarket_related"):
         lines.append("| Market | Odds | Volume |")
         lines.append("|---|---|---|")
         for m in b["polymarket_related"]:
             lines.append(f"| {m['market']} | {_fmt(m.get('odds'))} | {_fmt(m.get('volume'))} |")
     else:
-        lines.append("No related markets found.")
+        lines.append("No related markets found (or the Polymarket API was unreachable this run).")
 
     lines.append("\n## Deterministic Scorecard *(code-computed — report verbatim)*")
     lines += _kv_table(
@@ -523,9 +580,60 @@ def generate(
                 lines.append(f"\n{flag}")
             lines.append(f"\n*{oos.get('note')}*")
 
-    tl = scoring.trade_levels(price["last"], price["atr14"])
+        try:
+            rw = backtest.run_regime_windows(ticker, get_spec(top["template"]))
+        except Exception:
+            rw = None
+        if rw and rw.get("windows"):
+            lines.append(f"\n### Regime-Window Test — {top['template']} across {rw['n_windows']} sub-periods of this ticker's own history")
+            lines.append("| Period | Buy&Hold return | Regime | Volatility | Trades | Sharpe | Strategy CAGR | Outperformed B&H |")
+            lines.append("|---|---|---|---|---|---|---|---|")
+            for w in rw["windows"]:
+                if "error" in w:
+                    lines.append(f"| {w['start']} to {w['end']} | | | | ERROR: {w['error']} | | | |")
+                    continue
+                lines.append(
+                    f"| {w['start']} to {w['end']} | {_fmt(w.get('bh_return_pct'), '%')} | {w.get('market_regime_label')} | "
+                    f"{w.get('volatility_label')} | {_fmt(w.get('trades'))} | {_fmt(w.get('sharpe_ratio'))} | "
+                    f"{_fmt(w.get('strategy_cagr_pct'), '%')} | {w.get('outperformed_buy_and_hold')} |"
+                )
+            consistency = rw.get("sharpe_consistent_sign_across_windows")
+            lines.append(
+                f"\nSharpe sign consistent across all windows: {consistency}"
+                + (" — ⚠️ the aggregate backtest may be dominated by one strong/weak window." if consistency is False else "")
+            )
+            lines.append(f"\n*{rw.get('note')}*")
+
+        try:
+            mc = backtest.monte_carlo_bootstrap(ticker, get_spec(top["template"]), n_sims=2000, seed=42)
+        except Exception:
+            mc = None
+        if mc and "error" not in mc:
+            lines.append(f"\n### Monte Carlo Bootstrap — {top['template']} ({mc['n_simulations']} resamples of {mc['n_trades']} actual trades)")
+            lines += _kv_table(
+                [
+                    ("Actual total return", _fmt(mc.get("actual_total_return_pct"), "%")),
+                    ("Bootstrap total return — 5th / median / 95th pct", f"{_fmt(mc['bootstrap_total_return_pct']['p5'])}% / {_fmt(mc['bootstrap_total_return_pct']['median'])}% / {_fmt(mc['bootstrap_total_return_pct']['p95'])}%"),
+                    ("Bootstrap max drawdown — best / median / worst case", f"{_fmt(mc['bootstrap_max_drawdown_pct']['p5_best_case'])}% / {_fmt(mc['bootstrap_max_drawdown_pct']['median'])}% / {_fmt(mc['bootstrap_max_drawdown_pct']['p95_worst_case'])}%"),
+                    ("Probability of net loss (this trade sequence, resampled)", _fmt(mc.get("probability_of_loss_pct"), "%")),
+                ]
+            )
+            lines.append(f"\n*{mc.get('note')}*")
+        elif mc and "error" in mc:
+            lines.append(f"\n### Monte Carlo Bootstrap\n{mc['error']}")
+
+    tl = scoring.trade_levels(price["last"], price["atr14"], as_of=fresh["as_of"], next_earnings_date=fund.get("next_earnings_date"))
     if "error" not in tl:
         lines.append("\n## Trade Levels — hypothetical LONG entry, stop, and take-profit (not a recommendation to enter)")
+        ep = tl.get("earnings_proximity", {})
+        if ep.get("severity") in ("IMMEDIATE", "ELEVATED"):
+            lines.append(
+                f"\n> ⚠️ **{ep['severity']} EARNINGS RISK** — next earnings {ep.get('next_earnings_date')} "
+                f"({ep.get('calendar_days_until_earnings')} calendar day(s) from latest price bar). {ep['note']} The stop/TP levels "
+                "below are UNCHANGED — this only warns that execution around them is less reliable right now."
+            )
+        elif ep.get("severity") == "APPROACHING":
+            lines.append(f"\n> Earnings approaching: {ep.get('next_earnings_date')} ({ep.get('calendar_days_until_earnings')} calendar day(s)). {ep['note']}")
         lines += _kv_table(
             [
                 ("Entry (latest close)", _fmt(tl["entry"])),
@@ -534,6 +642,7 @@ def generate(
                 (f"Take-profit 1 ({tl['take_profit_1_r_multiple']}R)", _fmt(tl["take_profit_1"])),
                 (f"Take-profit 2 ({tl['take_profit_2_r_multiple']}R)", _fmt(tl["take_profit_2"])),
                 ("Risk/reward to TP1", f"{tl['risk_reward_ratio_tp1']}:1"),
+                ("Earnings proximity", f"{ep.get('severity', 'UNKNOWN')} ({ep.get('calendar_days_until_earnings')} calendar day(s))" if ep.get("calendar_days_until_earnings") is not None else "UNKNOWN"),
             ]
         )
         lines.append(f"\n**Invalidation:** {tl['invalidation']}")
@@ -570,6 +679,43 @@ def generate(
         if summary.get("sector_concentration_pct"):
             conc = ", ".join(f"{k} {v:.0f}%" for k, v in summary["sector_concentration_pct"].items())
             lines.append(f"\n**Sector concentration:** {conc}")
+
+    lines.append("\n## Data Quality / Model Reliability")
+    lines.append(
+        "What in this report is checkable fact, what is a deterministic-but-unvalidated heuristic, "
+        "and what hasn't been tested at all — read this before trusting the Decision above."
+    )
+    _oos = locals().get("oos")
+    _rw = locals().get("rw")
+    _disp = locals().get("disp")
+    _erh = locals().get("erh")
+    lines += _kv_table(
+        [
+            ("Data freshness", f"{fresh['as_of']} ({fresh['data_age_days']}d old)" + (" — ⚠️ STALE" if fresh["is_stale"] else "")),
+            ("Price type", "Daily close — not real-time, not a live quote"),
+            ("Scorecard validity", "Deterministic and reproducible — same inputs always produce the same score"),
+            (
+                "Scorecard predictive validity",
+                "NOT AVAILABLE — historical point-in-time fundamentals/valuation inputs are not available in this "
+                "data pipeline (only current-snapshot fundamentals are fetchable). The Decision/Overall score above "
+                "should be treated as a deterministic research heuristic, not a historically validated predictor of "
+                "forward returns.",
+            ),
+            ("Technical indicator inputs", "Point-in-time computed from historical bars; no lookahead in indicator calculation itself — this does not independently verify the absence of lookahead in signal timing, order execution, or fill assumptions elsewhere in the backtest engine"),
+            ("Out-of-sample strategy test", "Available — see Out-of-Sample Check above" if _oos and "error" not in (_oos or {}) else "Not available for this run"),
+            ("Regime-consistency test", "Available — see Regime-Window Test above" if _rw and _rw.get("windows") else "Not available for this run"),
+            ("Trade count / statistical significance", "Shown explicitly per backtest — no confidence interval computed, small samples (typically <30 trades) are NOT statistically validated"),
+            ("EPS estimate dispersion", f"{_disp.get('eps_estimate_spread_pct_of_avg')}% spread — shown above" if _disp and "error" not in (_disp or {}) else "Not available"),
+            ("Cyclicality / volatility risk", f"{sc.get('risk_flags', {}).get('cyclicality_risk', 'UNKNOWN')} / {sc.get('risk_flags', {}).get('volatility_risk', 'UNKNOWN')}"),
+            ("Earnings-proximity risk (trade levels)", f"{tl.get('earnings_proximity', {}).get('severity', 'UNKNOWN')}" if "error" not in tl else "Not available"),
+            ("Earnings reaction history", f"{len(_erh.get('events', []))} past events analyzed — see above" if _erh and "error" not in (_erh or {}) else "Not available"),
+        ]
+    )
+    lines.append(
+        "\n*This section does not add a new score — it inventories which claims above are checkable, which are "
+        "reproducible-but-unvalidated formula output, and which have not been tested at all, so neither you nor "
+        "an AI reading this report mistakes 'a lot of data' for 'a validated predictor.'*"
+    )
 
     lines.append(f"\n---\n*End of data package for {ticker}. Now respond using the structure requested above.*")
 

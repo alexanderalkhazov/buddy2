@@ -55,7 +55,7 @@ def search_markets(query: str, limit: int = 5) -> list[dict]:
 def macro_context(limit_per_topic: int = 2) -> list[dict]:
     """A standing set of macro markets useful as background for any ticker."""
     out: list[dict] = []
-    for topic in ("fed rate cut", "recession", "inflation"):
+    for topic in ("fed rate cut", "recession", "inflation", "unemployment", "GDP growth"):
         try:
             out.extend(search_markets(topic, limit=limit_per_topic))
         except requests.RequestException:

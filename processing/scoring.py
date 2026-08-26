@@ -184,12 +184,56 @@ def position_size(
     }
 
 
+def earnings_proximity_risk(as_of: str | None, next_earnings_date: str | None) -> dict:
+    """Severity-tiered warning for how close the next earnings report is to the
+    latest available price date — a stop computed from ATR assumes roughly
+    continuous price movement, which an earnings gap can violate (price can open
+    beyond the stop with no fill available at the stated level). Does not change
+    any computed stop/price — purely a warning about execution risk around the
+    event, sitting alongside the arithmetic, not inside it."""
+    if not as_of or not next_earnings_date:
+        return {"calendar_days_until_earnings": None, "severity": "UNKNOWN", "note": "next_earnings_date not available — cannot assess earnings-proximity risk."}
+
+    from datetime import date
+
+    try:
+        as_of_date = date.fromisoformat(str(as_of)[:10])
+        earnings_date = date.fromisoformat(str(next_earnings_date)[:10])
+    except ValueError:
+        return {"calendar_days_until_earnings": None, "severity": "UNKNOWN", "note": "could not parse a date — cannot assess earnings-proximity risk."}
+
+    days = (earnings_date - as_of_date).days
+
+    if days < 0:
+        severity, label = "PASSED", "Next reported earnings date is in the past relative to the latest price data — likely a stale or already-reported date; treat as unknown until refreshed."
+    elif days <= 1:
+        severity, label = "IMMEDIATE", "Earnings report is imminent (today or tomorrow, relative to the latest available price). A stop-loss computed from ATR does not account for an overnight/after-close earnings gap — price can open beyond the stop with no fill available at that level."
+    elif days <= 6:
+        severity, label = "ELEVATED", "Earnings report is within the next week. Historical implied volatility and realized moves typically rise into an earnings date — see get_earnings_reaction_history for this ticker's actual past reaction sizes."
+    elif days <= 14:
+        severity, label = "APPROACHING", "Earnings report is within two weeks. Not immediate, but worth checking get_earnings_reaction_history before assuming normal (non-event) price behavior between now and the report."
+    else:
+        severity, label = "NONE", "No earnings report expected in the near term based on next_earnings_date."
+
+    return {
+        # Explicitly "calendar days," not trading sessions — a next_earnings_date 3
+        # calendar days out could be 1-2 trading sessions away depending on weekends,
+        # and "3d" alone invites an AI (or a reader) to assume trading days.
+        "calendar_days_until_earnings": days,
+        "next_earnings_date": next_earnings_date,
+        "severity": severity,
+        "note": label,
+    }
+
+
 def trade_levels(
     last_price: float | None,
     atr14: float | None,
     stop_multiplier: float = 2.0,
     tp1_r_multiple: float = 1.5,
     tp2_r_multiple: float = 3.0,
+    as_of: str | None = None,
+    next_earnings_date: str | None = None,
 ) -> dict:
     """Entry/stop/take-profit levels for a hypothetical LONG position, derived
     purely from price and ATR — not a recommendation to take the trade, just the
@@ -221,6 +265,9 @@ def trade_levels(
         "take_profit_2_r_multiple": tp2_r_multiple,
         "risk_reward_ratio_tp1": tp1_r_multiple,  # by construction: TP1 is exactly tp1_r_multiple * risk
         "invalidation": f"Daily close below {stop} invalidates this long setup (stop-loss level breached).",
+        # Does not alter entry/stop/TP1/TP2 above — a separate, additive warning
+        # about execution risk around an earnings gap, not a recomputation.
+        "earnings_proximity": earnings_proximity_risk(as_of, next_earnings_date),
         "note": (
             "entry is the latest available daily close, not a live executable price — "
             "there may be gap risk between this level and your actual fill. stop/TP1/TP2 "

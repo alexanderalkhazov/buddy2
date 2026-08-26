@@ -229,8 +229,15 @@ TOOLS: list[dict] = [
             "same ATR-multiple stop as the scorecard's suggested_stop_price. TP1/TP2 "
             "are R-multiples (default 1.5R/3R, a common but arbitrary convention) of "
             "the entry-to-stop distance. ALWAYS call this instead of computing entry/"
-            "stop/TP arithmetic yourself. Whether to take the trade at all is a "
-            "separate judgment this tool does not make — report the invalidation "
+            "stop/TP arithmetic yourself. Also returns earnings_proximity (severity: "
+            "NONE/APPROACHING/ELEVATED/IMMEDIATE/PASSED/UNKNOWN, plus "
+            "calendar_days_until_earnings — CALENDAR days, not trading sessions, say so "
+            "explicitly if you cite it — and a note) — an ATR-based stop assumes roughly "
+            "continuous price movement, which an earnings gap can violate; if severity is "
+            "ELEVATED or IMMEDIATE, you MUST surface that warning alongside the stop, not "
+            "just the price levels. This warning does NOT change the computed stop/TP — "
+            "it's an additive note about execution risk, never silently drop it. Whether to take the trade at "
+            "all is a separate judgment this tool does not make — report the invalidation "
             "condition and note alongside any level you cite."
         ),
         "input_schema": {
@@ -284,6 +291,27 @@ TOOLS: list[dict] = [
             "type": "object",
             "properties": {"ticker": {"type": "string", "description": "Optional — adds that ticker's sector/industry ETF trend to the response."}},
         },
+    },
+    {
+        "name": "get_macro_context",
+        "description": (
+            "Broader macro backdrop, kept as three EXPLICITLY SEPARATE groups — never "
+            "blend them into one score: (1) market_proxies — real daily-close pricing "
+            "for 10Y/13W/30Y Treasury yields, US Dollar Index, WTI crude, and gold, plus "
+            "a computed yield_curve_10y_minus_13w_pct_points (inversion is a real, "
+            "widely-cited recession precursor but NOT a short-term timing signal — say "
+            "so if you cite it). Yield values are yfinance's x10 convention. "
+            "(2) economic_indicators — OFFICIAL government/Fed statistics from FRED "
+            "(CPI, Fed funds rate, unemployment rate, real GDP growth): LAGGED (a "
+            "release describes a past month/quarter, not today) and SUBJECT TO "
+            "REVISION — never call these 'current.' (3) prediction_markets — Polymarket "
+            "odds on Fed cuts/recession/inflation/unemployment/GDP, which is sentiment/"
+            "betting-market pricing, not a measured fact. Cite the specific group a "
+            "number came from — 'the market is pricing X' (proxies/prediction markets) "
+            "is a different claim than 'the government measured X' (economic "
+            "indicators)."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
     },
     {
         "name": "list_strategy_templates",
@@ -428,6 +456,80 @@ TOOLS: list[dict] = [
             "required": ["ticker", "template"],
         },
     },
+    {
+        "name": "run_regime_window_backtest",
+        "description": (
+            "Splits the cached history into several consecutive sub-periods of this "
+            "ticker's OWN price path (default 4) and runs the same strategy "
+            "independently on each — checks whether an edge holds across genuinely "
+            "different conditions (a window where the stock was flat/falling vs. one "
+            "where it ran hard) rather than being carried by one exceptional window. "
+            "market_regime_label/volatility_label per window are derived purely from "
+            "THIS ticker's own return/volatility in that window, not an external "
+            "market classification. sharpe_consistent_sign_across_windows flips to "
+            "false when Sharpe changes sign between windows — a warning the aggregate "
+            "backtest number may not reflect a repeatable pattern. Use this alongside "
+            "run_out_of_sample_backtest, not instead of it — they check different things."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "template": {"type": "string", "description": "Name of a built-in template from list_strategy_templates."},
+                "n_windows": {"type": ["integer", "string"], "description": "Number of sub-periods, default 4."},
+            },
+            "required": ["ticker", "template"],
+        },
+    },
+    {
+        "name": "run_monte_carlo_backtest",
+        "description": (
+            "Bootstrap-resamples a strategy's own historical trade returns (with "
+            "replacement, thousands of simulations) to show the range of outcomes "
+            "those SAME trades' order/repetition alone could produce. This does NOT "
+            "simulate new trades or new market conditions — it isolates path-"
+            "dependency risk in the actual trade sequence from the underlying return "
+            "distribution. Returns bootstrap_total_return_pct and "
+            "bootstrap_max_drawdown_pct as {p5, median, p95} plus "
+            "probability_of_loss_pct. With under ~30 trades (typical for this "
+            "system's backtests) this range is WIDE — report it as 'the path-"
+            "dependency risk in the trades we have,' never as a validated forward-"
+            "looking probability distribution. Errors if the strategy has fewer than "
+            "5 trades."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "template": {"type": "string", "description": "Name of a built-in template from list_strategy_templates."},
+                "n_sims": {"type": ["integer", "string"], "description": "Number of bootstrap simulations, default 2000."},
+            },
+            "required": ["ticker", "template"],
+        },
+    },
+    {
+        "name": "get_earnings_reaction_history",
+        "description": (
+            "How did the stock ACTUALLY move in the 1/5/10 days after each of its "
+            "last several reported earnings — real historical price action anchored "
+            "to yfinance's exact earnings-announcement timestamps (not the fiscal-"
+            "quarter-end dates in earnings_history, which are NOT the day the market "
+            "reacted). A company can beat EPS estimates and still sell off (weak "
+            "guidance, 'sell the news') — eps_surprise_pct and return_1d_pct are "
+            "reported per-event for exactly this reason; never assume they move "
+            "together. Sample size is small (typically under 10 events) and each "
+            "report's market conditions differ — this is NOT a forecast of the next "
+            "earnings reaction, only a record of what actually happened before."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "limit": {"type": ["integer", "string"], "description": "Max number of past earnings events, default 8."},
+            },
+            "required": ["ticker"],
+        },
+    },
 ]
 
 
@@ -448,6 +550,28 @@ def _run_out_of_sample_backtest(**kw) -> dict:
     return backtest.run_out_of_sample(
         kw["ticker"], get_spec(kw["template"]), split_pct=float(kw.get("split_pct", 0.7))
     )
+
+
+def _run_regime_window_backtest(**kw) -> dict:
+    from processing import backtest  # deferred: pulls in vectorbt
+    from processing.strategies import get_spec
+
+    return backtest.run_regime_windows(
+        kw["ticker"], get_spec(kw["template"]), n_windows=int(kw.get("n_windows", 4))
+    )
+
+
+def _run_monte_carlo_backtest(**kw) -> dict:
+    from processing import backtest  # deferred: pulls in vectorbt
+    from processing.strategies import get_spec
+
+    return backtest.monte_carlo_bootstrap(
+        kw["ticker"], get_spec(kw["template"]), n_sims=int(kw.get("n_sims", 2000))
+    )
+
+
+def _get_earnings_reaction_history(**kw) -> dict:
+    return fundamentals.earnings_reaction_history(kw["ticker"], limit=int(kw.get("limit", 8)))
 
 
 def _scan_strategies(**kw) -> list[dict]:
@@ -516,12 +640,15 @@ def _get_trade_levels(**kw) -> dict:
 
     ticker = kw["ticker"]
     snap = snapshot(ticker, get_ohlcv(ticker))
+    fund = fundamentals.fetch_fundamentals(ticker)
     return scoring.trade_levels(
         snap.last,
         snap.atr14,
         stop_multiplier=float(kw.get("stop_multiplier", 2.0)),
         tp1_r_multiple=float(kw.get("tp1_r_multiple", 1.5)),
         tp2_r_multiple=float(kw.get("tp2_r_multiple", 3.0)),
+        as_of=snap.as_of,
+        next_earnings_date=fund.get("next_earnings_date"),
     )
 
 
@@ -535,6 +662,12 @@ def _get_market_regime(**kw) -> dict:
         etf = relative_strength.sector_etf(fund.get("sector"), fund.get("industry"))
         out["sector_regime"] = regime.sector_regime(etf)
     return out
+
+
+def _get_macro_context(**_kw) -> dict:
+    from processing import macro
+
+    return macro.full_macro_context()
 
 
 def _get_relative_strength(**kw) -> dict:
@@ -565,6 +698,9 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     ),
     "run_backtest": _run_backtest,
     "run_out_of_sample_backtest": _run_out_of_sample_backtest,
+    "run_regime_window_backtest": _run_regime_window_backtest,
+    "run_monte_carlo_backtest": _run_monte_carlo_backtest,
+    "get_earnings_reaction_history": _get_earnings_reaction_history,
     "scan_strategies": _scan_strategies,
     "list_strategy_templates": _list_strategy_templates,
     "compare_tickers": lambda **kw: compare.compare_tickers(_as_list(kw["tickers"])),
@@ -580,6 +716,7 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "get_trade_levels": _get_trade_levels,
     "get_relative_strength": _get_relative_strength,
     "get_market_regime": _get_market_regime,
+    "get_macro_context": _get_macro_context,
 }
 
 
