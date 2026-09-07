@@ -123,6 +123,8 @@ def build(
         industry=fund.get("industry"),
         beta=fund.get("beta"),
         fifty_two_week_high=fund.get("fifty_two_week_high"),
+        sma20=snap.sma20,
+        sma50=snap.sma50,
     ).to_dict()
 
     if asset_class not in ("EQUITY", "UNKNOWN"):

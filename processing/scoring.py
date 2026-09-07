@@ -356,6 +356,129 @@ def risk_adjusted_conviction(overall: float | None, risk_flags: dict[str, str]) 
     return "LOW"
 
 
+def company_quality_score(fundamental: float | None, valuation: float | None) -> float | None:
+    """'Is this a good business at a reasonable price' — fundamental(60%)/valuation(40%),
+    renormalized over whichever is available. Deliberately excludes technical and
+    sentiment: those describe trade TIMING, not business quality, and folding them
+    in here is exactly the double-counting this split exists to avoid."""
+    parts = {"fundamental": (fundamental, 0.6), "valuation": (valuation, 0.4)}
+    available = {k: v for k, (v, _) in parts.items() if v is not None}
+    if not available:
+        return None
+    weight_sum = sum(parts[k][1] for k in available)
+    return round(sum(parts[k][1] * available[k] for k in available) / weight_sum, 1)
+
+
+def entry_quality_score(
+    last_price: float | None,
+    sma20: float | None,
+    sma50: float | None,
+    fifty_two_week_high: float | None,
+    rsi14: float | None,
+    atr14: float | None,
+) -> float | None:
+    """'Is NOW a favorable price to start a new position' — independent of whether
+    the company itself is good. A great company can have a terrible entry (extended,
+    overbought, far above its 52w high on elevated volatility); a mediocre company
+    can have a fine entry (pulled back, not overbought). Starts at 100 and subtracts
+    penalties; never rewards distance from SMAs the way technical_score does — being
+    far ABOVE a rising SMA is exactly what makes an entry worse, not better."""
+    if last_price is None or last_price <= 0:
+        return None
+
+    score = 100.0
+    penalized_any = False
+
+    if sma20 is not None and sma20 > 0:
+        pct_above_20 = (last_price - sma20) / sma20 * 100
+        if pct_above_20 > 0:
+            score -= _clip(pct_above_20 * 2.5, 0, 30)
+        penalized_any = True
+
+    if fifty_two_week_high is not None and fifty_two_week_high > 0:
+        pct_from_high = (fifty_two_week_high - last_price) / fifty_two_week_high * 100
+        if pct_from_high < 5:
+            score -= _clip((5 - pct_from_high) * 4, 0, 25)
+        penalized_any = True
+
+    if rsi14 is not None:
+        if rsi14 > 70:
+            score -= _clip((rsi14 - 70) * 1.5, 0, 25)
+        elif rsi14 < 30:
+            score -= _clip((30 - rsi14) * 0.5, 0, 10)
+        penalized_any = True
+
+    if atr14 is not None and last_price > 0:
+        atr_pct = atr14 / last_price * 100
+        if atr_pct > 4:
+            score -= _clip((atr_pct - 4) * 2, 0, 15)
+        penalized_any = True
+
+    if not penalized_any:
+        return None
+    return round(_clip(score, 0, 100), 1)
+
+
+def _direction_label(score: float | None) -> str:
+    if score is None:
+        return "UNKNOWN"
+    if score >= 60:
+        return "BULLISH"
+    if score >= 40:
+        return "NEUTRAL"
+    return "BEARISH"
+
+
+def entry_quality_label(score: float | None) -> str:
+    if score is None:
+        return "UNKNOWN"
+    if score >= 75:
+        return "EXCELLENT"
+    if score >= 55:
+        return "GOOD"
+    if score >= 35:
+        return "FAIR"
+    return "POOR"
+
+
+def thesis_vs_trade(
+    company_quality: float | None,
+    entry_quality: float | None,
+    risk_flags: dict[str, str],
+) -> dict:
+    """The core split this scoring module was missing: a strong company is not
+    automatically a good trade right now, and a good entry doesn't make a weak
+    company worth owning. overall_score/decision stay as-is (they answer 'cheap
+    and technically strong'); this answers the two questions separately so the
+    LLM/report can say 'bullish company, poor current entry' instead of forcing
+    both into one number."""
+    high_risk_count = sum(1 for v in risk_flags.values() if v == "HIGH")
+    if high_risk_count >= 2:
+        risk = "HIGH"
+    elif high_risk_count == 1:
+        risk = "MEDIUM"
+    elif company_quality is None and entry_quality is None:
+        risk = "UNKNOWN"
+    else:
+        risk = "LOW"
+
+    return {
+        "investment_thesis_direction": _direction_label(company_quality),
+        "trade_setup_direction": _direction_label(entry_quality),
+        "risk": risk,
+        "entry_quality_label": entry_quality_label(entry_quality),
+        "note": (
+            "investment_thesis_direction answers 'is this a good business at a "
+            "reasonable price' (fundamental+valuation only). trade_setup_direction "
+            "answers 'is now a favorable price to start a position' (price location "
+            "relative to SMA20/52w-high/RSI/ATR%, independent of business quality). "
+            "They can and often do disagree — e.g. BULLISH thesis with BEARISH/NEUTRAL "
+            "setup means 'good company, bad entry, consider waiting for a pullback,' "
+            "not a contradiction to resolve into one score."
+        ),
+    }
+
+
 @dataclass
 class Scorecard:
     fundamental: float | None
@@ -367,6 +490,9 @@ class Scorecard:
     suggested_stop_price: float | None
     risk_flags: dict = None
     risk_adjusted_conviction: str = "UNKNOWN"
+    company_quality: float | None = None
+    entry_quality: float | None = None
+    thesis_vs_trade: dict = None
     weights: dict = None
     methodology: str = (
         "Overall = weighted average of fundamental(40%)/technical(30%)/valuation(20%)/"
@@ -392,6 +518,9 @@ class Scorecard:
             "suggested_stop_price": self.suggested_stop_price,
             "risk_flags": self.risk_flags or {},
             "risk_adjusted_conviction": self.risk_adjusted_conviction,
+            "company_quality": self.company_quality,
+            "entry_quality": self.entry_quality,
+            "thesis_vs_trade": self.thesis_vs_trade or {},
             "weights": WEIGHTS,
             "methodology": self.methodology,
         }
@@ -413,6 +542,8 @@ def compute_scorecard(
     industry: str | None = None,
     beta: float | None = None,
     fifty_two_week_high: float | None = None,
+    sma20: float | None = None,
+    sma50: float | None = None,
 ) -> Scorecard:
     fundamental = fundamental_score(profit_margin, revenue_growth)
     technical = technical_score(rsi14, macd_hist, trend)
@@ -428,6 +559,9 @@ def compute_scorecard(
         "volatility_risk": volatility_risk(beta),
     }
 
+    company_quality = company_quality_score(fundamental, valuation)
+    entry_quality = entry_quality_score(last_price, sma20, sma50, fifty_two_week_high, rsi14, atr14)
+
     return Scorecard(
         fundamental=fundamental,
         technical=technical,
@@ -438,4 +572,7 @@ def compute_scorecard(
         suggested_stop_price=suggested_stop(last_price, atr14),
         risk_flags=flags,
         risk_adjusted_conviction=risk_adjusted_conviction(overall, flags),
+        company_quality=company_quality,
+        entry_quality=entry_quality,
+        thesis_vs_trade=thesis_vs_trade(company_quality, entry_quality, flags),
     )

@@ -14,9 +14,10 @@ from datetime import datetime, timezone
 
 from data.fundamentals import earnings_reaction_history, estimate_dispersion, eps_revision_history, insider_activity
 from data import macro as macro_mod_data
-from processing import backtest, bundle, compare, portfolio, regime, relative_strength, scoring, valuation
+from processing import backtest, bundle, compare, regime, relative_strength, scoring, valuation
 from processing import macro as macro_mod
 from processing.strategies import get_spec
+from storage.cache import get_ohlcv
 
 SYSTEM_BLOCK = """\
 You are acting as a trading research analyst. Everything in the DATA section below \
@@ -102,6 +103,18 @@ def _kv_table(rows: list[tuple[str, str]]) -> list[str]:
     out = ["| Field | Value |", "|---|---|"]
     out += [f"| {k} | {v} |" for k, v in rows]
     return out
+
+
+def _return_over(df, days: int) -> float | None:
+    from datetime import timedelta
+
+    window = df[df.index >= df.index.max() - timedelta(days=days)]
+    if window.empty or len(window) < 2:
+        return None
+    first, last = float(window["close"].iloc[0]), float(window["close"].iloc[-1])
+    if first == 0:
+        return None
+    return round((last / first - 1) * 100, 4)
 
 
 def generate(
@@ -390,6 +403,9 @@ def generate(
             lines.append(f"- {item}")
         lines.append("\n**Thesis fragility:**")
         lines += _kv_table([(k.replace("_", " ").title(), v) for k, v in td["thesis_fragility"].items()])
+        lines.append("\n**Thesis invalidation conditions** *(fundamental/estimate triggers — separate from the price-based stop under Trade Levels)*")
+        for item in td.get("thesis_invalidation_conditions", []):
+            lines.append(f"- {item}")
         lines.append(f"\n*{td['note']}*")
 
         grid = valuation.sensitivity_grid(price["last"], fund.get("forward_eps"), fund.get("forward_pe"))
@@ -515,9 +531,37 @@ def generate(
         lines.append(f"\n> {sc['asset_class_note']}")
     lines.append(f"\n*Methodology: {sc['methodology']}*")
 
+    tvt = sc.get("thesis_vs_trade") or {}
+    if tvt:
+        lines.append("\n### Investment Thesis vs. Trade Setup *(these are separate questions — do not collapse into one)*")
+        lines += _kv_table(
+            [
+                ("Company quality (fundamental+valuation only)", _fmt(sc.get("company_quality"))),
+                ("**Investment thesis direction**", f"**{tvt.get('investment_thesis_direction', 'UNKNOWN')}**"),
+                ("Entry quality (price location right now)", _fmt(sc.get("entry_quality"))),
+                ("**Trade setup direction**", f"**{tvt.get('trade_setup_direction', 'UNKNOWN')}**"),
+                ("Entry quality label", tvt.get("entry_quality_label", "UNKNOWN")),
+                ("**Combined risk**", f"**{tvt.get('risk', 'UNKNOWN')}**"),
+            ]
+        )
+        lines.append(f"\n> {tvt.get('note', '')}")
+
+    lines.append("\n## Historical Performance — trailing returns (real price data, not a strategy result)")
+    _hist_df = get_ohlcv(ticker)
+    from datetime import date as _date
+
+    _today = _date.today()
+    _ytd_days = (_today - _date(_today.year, 1, 1)).days or 1
+    _periods = [("1D", 1), ("1W", 7), ("1M", 30), ("3M", 91), ("6M", 182), ("YTD", _ytd_days), ("1Y", 365), ("3Y", 1095), ("5Y", 1825)]
+    lines += _kv_table(
+        [(label, (f"{r}%" if (r := _return_over(_hist_df, d)) is not None else "n/a")) for label, d in _periods]
+    )
+
     lines.append("\n## Strategy Screen — 6 published systems, ranked by Sharpe")
-    scan_results = backtest.scan(ticker)
-    lines.append("| Strategy | Sharpe | CAGR | vs BuyHold CAGR | Max DD | Win % | Profit Factor | Trades |")
+    scan_out = backtest.scan(ticker)
+    scan_results = scan_out["rankings"]
+    lines.append(f"\n> {scan_out['selection_bias_warning']}")
+    lines.append("\n| Strategy | Sharpe | CAGR | vs BuyHold CAGR | Max DD | Win % | Profit Factor | Trades |")
     lines.append("|---|---|---|---|---|---|---|---|")
     for r in scan_results:
         if "error" in r:
@@ -662,23 +706,6 @@ def generate(
                 lines.append(f"\n⚠️ {sizing['warning']}")
         else:
             lines.append("Cannot size — missing entry price or stop.")
-
-    positions = portfolio.list_positions()
-    if positions:
-        lines.append("\n## Your Tracked Portfolio")
-        summary = portfolio.portfolio_summary()
-        lines.append("| Ticker | Shares | Cost | P&L | P&L % | Weight % |")
-        lines.append("|---|---|---|---|---|---|")
-        for p in summary["positions"]:
-            lines.append(
-                f"| {p['ticker']} | {p['shares']} | {_fmt(p['cost_basis'])} | "
-                f"{_fmt(p['unrealized_pl'])} | {_fmt(p['unrealized_pl_pct'])}% | "
-                f"{_fmt(p['portfolio_weight_pct'])}% |"
-            )
-        lines.append(f"\n**Total P&L:** {_fmt(summary['total_pl'])} ({_fmt(summary['total_pl_pct'])}%)")
-        if summary.get("sector_concentration_pct"):
-            conc = ", ".join(f"{k} {v:.0f}%" for k, v in summary["sector_concentration_pct"].items())
-            lines.append(f"\n**Sector concentration:** {conc}")
 
     lines.append("\n## Data Quality / Model Reliability")
     lines.append(

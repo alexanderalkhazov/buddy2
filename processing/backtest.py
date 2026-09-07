@@ -522,4 +522,21 @@ def scan(ticker: str) -> list[dict]:
             results.append({"template": name, "error": f"{type(exc).__name__}: {exc}"})
 
     results.sort(key=lambda r: (r.get("sharpe_ratio") is None, -(r.get("sharpe_ratio") or 0)))
-    return results
+
+    n_tested = len(TEMPLATES)
+    valid = [r for r in results if r.get("sharpe_ratio") is not None]
+    best_sharpe = valid[0]["sharpe_ratio"] if valid else None
+    return {
+        "rankings": results,
+        "strategies_tested": n_tested,
+        "selection_bias_warning": (
+            f"{n_tested} strategies were tried on this ticker and ranked by Sharpe; the top result "
+            f"(Sharpe {best_sharpe}) is a MAXIMUM over {n_tested} trials, not a single a-priori test — "
+            "some inflation above the strategies' true edge is expected purely from trying multiple "
+            "templates and keeping the best (multiple-comparisons / selection bias), even before any "
+            "parameter tuning within a template. Treat the ranking as hypothesis-GENERATING (which "
+            "published systems currently show an edge worth investigating), not as a validated result. "
+            "Use run_out_of_sample_backtest and run_regime_window_backtest on the top candidate before "
+            "treating its edge as real — those are the closest things this system has to confirmation."
+        ) if valid else f"{n_tested} strategies were tried; none produced a usable Sharpe ratio.",
+    }

@@ -38,37 +38,6 @@ CREATE TABLE IF NOT EXISTS news (
     sentiment    VARCHAR,
     PRIMARY KEY (ticker, url)
 );
-
-CREATE TABLE IF NOT EXISTS conversation (
-    id         BIGINT,
-    role       VARCHAR,
-    content    VARCHAR,
-    created_at TIMESTAMP
-);
-
-CREATE SEQUENCE IF NOT EXISTS conversation_id_seq;
-
-CREATE TABLE IF NOT EXISTS notes (
-    key        VARCHAR PRIMARY KEY,
-    value      VARCHAR,
-    updated_at TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS positions (
-    id         BIGINT,
-    ticker     VARCHAR,
-    shares     DOUBLE,
-    cost_basis DOUBLE,   -- price paid per share
-    opened_at  TIMESTAMP,
-    note       VARCHAR
-);
-
-CREATE SEQUENCE IF NOT EXISTS positions_id_seq;
-
-CREATE TABLE IF NOT EXISTS watchlist (
-    ticker    VARCHAR PRIMARY KEY,
-    added_at  TIMESTAMP
-);
 """
 
 

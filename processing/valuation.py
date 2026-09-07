@@ -218,16 +218,44 @@ def thesis_dependencies(
     if forward_pe is not None:
         fragility["multiple_dependency"] = multiple_attractiveness(forward_pe)
 
+    invalidation_conditions = []
+    if forward_eps is not None:
+        invalidation_conditions.append(
+            f"Forward-consensus EPS is revised down materially from the current ${forward_eps} (e.g. by more than "
+            "~10-15%, or by any amount alongside guidance cuts) — this attacks the earnings estimate the thesis "
+            "is priced on, distinct from the price-based stop in trade_levels()."
+        )
+    if eps_dispersion_spread_pct is not None:
+        invalidation_conditions.append(
+            f"Analyst EPS dispersion widens materially beyond the current {eps_dispersion_spread_pct}% spread — "
+            "growing disagreement among analysts is itself evidence the forward number is less reliable, "
+            "independent of which direction estimates move."
+        )
+    if cyclicality_risk_label == "HIGH":
+        invalidation_conditions.append(
+            "Revenue growth or margins decelerate for 2+ consecutive reported quarters — for a HIGH-cyclicality "
+            "sector this is the signature of a cyclical peak already having passed, which the current forward "
+            "P/E does not price in."
+        )
+    invalidation_conditions.append(
+        "Next-quarter guidance (if given at the next earnings report) comes in below the forward-consensus EPS "
+        "used above — guidance is more current information than the pre-report consensus."
+    )
+
     return {
         "ticker": ticker.upper(),
         "thesis_depends_on": depends_on,
         "thesis_fragility": fragility,
+        "thesis_invalidation_conditions": invalidation_conditions,
         "note": (
             "Every item here is derived from data already in this bundle — this is not a new data source, just "
             "the existing forward-P/E, EPS-dispersion, and cyclicality fields restated as explicit conditions "
             "instead of a single score. It does not know what specifically drives this company's earnings "
             "(industry pricing, product cycle, guidance) — those would need a dedicated data source not "
-            "currently in this system."
+            "currently in this system. thesis_invalidation_conditions answers a DIFFERENT question than "
+            "trade_levels().invalidation: the trade-level one is a price/stop trigger ('daily close below $X'), "
+            "this one is a fundamental/estimate trigger ('EPS consensus cut,' 'guidance misses') — a position "
+            "can be invalidated on either axis independently of the other."
         ),
     }
 
