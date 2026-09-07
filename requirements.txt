@@ -1,8 +1,10 @@
 duckdb==1.5.5
+joblib==1.5.3
 numpy==2.5.2
 pandas==3.0.5
 python-dotenv==1.2.2
 requests==2.34.2
 rich==15.0.0
+scikit-learn==1.9.0
 vectorbt==1.1.0
 yfinance==1.5.2

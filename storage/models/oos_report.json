@@ -1,0 +1,248 @@
+{
+  "target": "fwd_up_20d",
+  "n_rows": 6688,
+  "n_tickers": 32,
+  "date_range": [
+    "2022-07-08",
+    "2026-08-31"
+  ],
+  "n_folds": 3,
+  "folds": [
+    {
+      "fold": 0,
+      "n_train": 1568,
+      "n_test": 1640,
+      "test_start": "2023-07-14",
+      "test_end": "2024-07-19",
+      "brier_logreg": 0.2446,
+      "brier_hgb": 0.2442,
+      "logloss_logreg": 0.6824,
+      "logloss_hgb": 0.6815,
+      "auc_logreg": 0.5064,
+      "auc_hgb": 0.5105,
+      "calibration_logreg": [
+        {
+          "predicted_range": "0%-20%",
+          "n": 0,
+          "predicted_avg": null,
+          "actual_rate": null
+        },
+        {
+          "predicted_range": "20%-40%",
+          "n": 0,
+          "predicted_avg": null,
+          "actual_rate": null
+        },
+        {
+          "predicted_range": "40%-60%",
+          "n": 1496,
+          "predicted_avg": 0.56,
+          "actual_rate": 0.576
+        },
+        {
+          "predicted_range": "60%-80%",
+          "n": 144,
+          "predicted_avg": 0.615,
+          "actual_rate": 0.583
+        },
+        {
+          "predicted_range": "80%-100%",
+          "n": 0,
+          "predicted_avg": null,
+          "actual_rate": null
+        }
+      ],
+      "calibration_hgb": [
+        {
+          "predicted_range": "0%-20%",
+          "n": 0,
+          "predicted_avg": null,
+          "actual_rate": null
+        },
+        {
+          "predicted_range": "20%-40%",
+          "n": 0,
+          "predicted_avg": null,
+          "actual_rate": null
+        },
+        {
+          "predicted_range": "40%-60%",
+          "n": 1588,
+          "predicted_avg": 0.562,
+          "actual_rate": 0.573
+        },
+        {
+          "predicted_range": "60%-80%",
+          "n": 52,
+          "predicted_avg": 0.606,
+          "actual_rate": 0.692
+        },
+        {
+          "predicted_range": "80%-100%",
+          "n": 0,
+          "predicted_avg": null,
+          "actual_rate": null
+        }
+      ]
+    },
+    {
+      "fold": 1,
+      "n_train": 3200,
+      "n_test": 1640,
+      "test_start": "2024-07-19",
+      "test_end": "2025-07-28",
+      "brier_logreg": 0.2461,
+      "brier_hgb": 0.2459,
+      "logloss_logreg": 0.6854,
+      "logloss_hgb": 0.6849,
+      "auc_logreg": 0.5048,
+      "auc_hgb": 0.5117,
+      "calibration_logreg": [
+        {
+          "predicted_range": "0%-20%",
+          "n": 0,
+          "predicted_avg": null,
+          "actual_rate": null
+        },
+        {
+          "predicted_range": "20%-40%",
+          "n": 1,
+          "predicted_avg": 0.399,
+          "actual_rate": 1.0
+        },
+        {
+          "predicted_range": "40%-60%",
+          "n": 1521,
+          "predicted_avg": 0.557,
+          "actual_rate": 0.568
+        },
+        {
+          "predicted_range": "60%-80%",
+          "n": 118,
+          "predicted_avg": 0.614,
+          "actual_rate": 0.542
+        },
+        {
+          "predicted_range": "80%-100%",
+          "n": 0,
+          "predicted_avg": null,
+          "actual_rate": null
+        }
+      ],
+      "calibration_hgb": [
+        {
+          "predicted_range": "0%-20%",
+          "n": 0,
+          "predicted_avg": null,
+          "actual_rate": null
+        },
+        {
+          "predicted_range": "20%-40%",
+          "n": 0,
+          "predicted_avg": null,
+          "actual_rate": null
+        },
+        {
+          "predicted_range": "40%-60%",
+          "n": 1419,
+          "predicted_avg": 0.581,
+          "actual_rate": 0.564
+        },
+        {
+          "predicted_range": "60%-80%",
+          "n": 221,
+          "predicted_avg": 0.608,
+          "actual_rate": 0.584
+        },
+        {
+          "predicted_range": "80%-100%",
+          "n": 0,
+          "predicted_avg": null,
+          "actual_rate": null
+        }
+      ]
+    },
+    {
+      "fold": 2,
+      "n_train": 4832,
+      "n_test": 1640,
+      "test_start": "2025-07-28",
+      "test_end": "2026-08-03",
+      "brier_logreg": 0.248,
+      "brier_hgb": 0.2482,
+      "logloss_logreg": 0.6893,
+      "logloss_hgb": 0.6896,
+      "auc_logreg": 0.5002,
+      "auc_hgb": 0.4768,
+      "calibration_logreg": [
+        {
+          "predicted_range": "0%-20%",
+          "n": 0,
+          "predicted_avg": null,
+          "actual_rate": null
+        },
+        {
+          "predicted_range": "20%-40%",
+          "n": 0,
+          "predicted_avg": null,
+          "actual_rate": null
+        },
+        {
+          "predicted_range": "40%-60%",
+          "n": 1579,
+          "predicted_avg": 0.568,
+          "actual_rate": 0.554
+        },
+        {
+          "predicted_range": "60%-80%",
+          "n": 61,
+          "predicted_avg": 0.611,
+          "actual_rate": 0.492
+        },
+        {
+          "predicted_range": "80%-100%",
+          "n": 0,
+          "predicted_avg": null,
+          "actual_rate": null
+        }
+      ],
+      "calibration_hgb": [
+        {
+          "predicted_range": "0%-20%",
+          "n": 0,
+          "predicted_avg": null,
+          "actual_rate": null
+        },
+        {
+          "predicted_range": "20%-40%",
+          "n": 0,
+          "predicted_avg": null,
+          "actual_rate": null
+        },
+        {
+          "predicted_range": "40%-60%",
+          "n": 1639,
+          "predicted_avg": 0.574,
+          "actual_rate": 0.552
+        },
+        {
+          "predicted_range": "60%-80%",
+          "n": 1,
+          "predicted_avg": 0.608,
+          "actual_rate": 0.0
+        },
+        {
+          "predicted_range": "80%-100%",
+          "n": 0,
+          "predicted_avg": null,
+          "actual_rate": null
+        }
+      ]
+    }
+  ],
+  "mean_brier_logreg": 0.2462,
+  "mean_brier_hgb": 0.2461,
+  "mean_auc_logreg": 0.5038,
+  "mean_auc_hgb": 0.4997,
+  "note": "brier/auc/calibration above are OUT-OF-SAMPLE, computed per walk-forward fold with a 20-trading-day embargo between train and test. The saved model used for live prediction is fit on ALL rows (including these test folds) and is NOT the model that produced these numbers \u2014 that's standard practice (use every available observation for the deployed model) but means these OOS numbers describe the METHOD's historical reliability, not a guarantee about this exact saved model's future accuracy. Brier score of 0.25 is what a coin-flip (always predicting 50%) scores on a balanced target \u2014 meaningfully below 0.25 is where a real edge would show up; AUC of 0.5 is no better than random."
+}

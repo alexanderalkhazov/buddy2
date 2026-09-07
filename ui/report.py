@@ -504,7 +504,7 @@ def generate(
     else:
         lines.append("No related markets found (or the Polymarket API was unreachable this run).")
 
-    lines.append("\n## Deterministic Scorecard *(code-computed — report verbatim)*")
+    lines.append("\n## Baseline Score *(deterministic, rule-based — code-computed, report verbatim; NOT the ML prediction below)*")
     lines += _kv_table(
         [
             ("Fundamental", _fmt(sc["fundamental"])),
@@ -706,6 +706,49 @@ def generate(
                 lines.append(f"\n⚠️ {sizing['warning']}")
         else:
             lines.append("Cannot size — missing entry price or stop.")
+
+    lines.append("\n## ML Prediction Engine *(experimental — separate from the Baseline Score above; may disagree with it)*")
+    from processing.ml.predict import model_available, predict as ml_predict
+
+    if not model_available():
+        lines.append(
+            "No trained model on disk. This is a cross-sectional, walk-forward-validated, "
+            "probability-calibrated direction model trained on price/technical features across a "
+            "~30-ticker universe — run `python -m processing.ml.train` once to build it (a few "
+            "minutes; fetches and trains on history for the whole universe)."
+        )
+    else:
+        ml = ml_predict(ticker, refresh=refresh)
+        if ml.get("error"):
+            lines.append(f"Unavailable for {ticker}: {ml['error']}")
+        else:
+            oos = ml["oos_reliability"]
+            lines += _kv_table(
+                [
+                    ("Target", ml["target"]),
+                    ("P(up 20D) — logistic", f"{ml['p_up_20d_logreg']:.1%}"),
+                    ("P(up 20D) — boosted trees", f"{ml['p_up_20d_hgb']:.1%}"),
+                    ("**P(up 20D) — ensemble**", f"**{ml['p_up_20d_ensemble']:.1%}**"),
+                    ("Model agreement (1.0 = identical)", f"{ml['model_agreement']:.2f}"),
+                    ("Training set", f"{oos['n_training_rows']} rows, {oos['n_training_tickers']} tickers, {oos['training_date_range'][0]} to {oos['training_date_range'][1]}"),
+                    ("Out-of-sample AUC (walk-forward, embargoed)", f"{oos['mean_oos_auc']:.3f} (0.5 = no better than random)"),
+                    ("Out-of-sample Brier score", f"{oos['mean_oos_brier']:.4f} (0.25 = coin-flip baseline)"),
+                    ("**Reliability**", f"**{ml['reliability']}**"),
+                    ("**Recommended gate**", f"**{ml['recommended_gate']}**"),
+                ]
+            )
+            an = ml["historical_analogs"]
+            lines.append(f"\n### Historical Analogs (k-NN, n={an['n']})")
+            if an["n"]:
+                lines += _kv_table(
+                    [
+                        ("Median forward 20D return", f"{an['median_fwd_ret_20d_pct']}%"),
+                        ("10th / 25th / 75th / 90th percentile", f"{an['p10_fwd_ret_20d_pct']}% / {an['p25_fwd_ret_20d_pct']}% / {an['p75_fwd_ret_20d_pct']}% / {an['p90_fwd_ret_20d_pct']}%"),
+                        ("Win rate", f"{an['win_rate_pct']}%"),
+                    ]
+                )
+                lines.append(f"\n*{an['note']}*")
+            lines.append(f"\n*{ml['note']}*")
 
     lines.append("\n## Data Quality / Model Reliability")
     lines.append(

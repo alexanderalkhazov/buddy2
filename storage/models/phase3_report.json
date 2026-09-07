@@ -1,0 +1,339 @@
+{
+  "universe": {
+    "n_tickers": 103,
+    "n_rows": 21527,
+    "date_range": [
+      "2022-07-08",
+      "2026-08-31"
+    ],
+    "sector_distribution": {
+      "communication_services": 7,
+      "consumer_discretionary": 8,
+      "consumer_staples": 8,
+      "energy": 8,
+      "financials": 8,
+      "healthcare": 8,
+      "industrials": 8,
+      "materials": 8,
+      "real_estate": 8,
+      "semiconductors": 8,
+      "software_internet": 8,
+      "technology": 8,
+      "utilities": 8
+    },
+    "excluded_tickers": [
+      {
+        "ticker": "EA",
+        "reason": "only 6 bars, need 210+"
+      }
+    ],
+    "survivorship_bias_note": "Universe is TODAY's liquid large-cap constituent list per sector, not a point-in-time historical index membership snapshot \u2014 see processing/ml/universe.py for the full disclosure. Results here describe how today's well-known names behaved historically, not the true historical investable universe including delisted/acquired/bankrupt names.",
+    "market_cap_liquidity_note": "Market-cap and liquidity bucketing (requested in the Phase 3 brief) was NOT built this round \u2014 it would require per-ticker point-in-time market cap/volume history beyond what this pass covers; flagged as a scope cut, not a silent omission."
+  },
+  "dev_rows": 18231,
+  "holdout_rows": 3296,
+  "core_expanded_universe": {
+    "atr_pct": {
+      "ic": 0.1141,
+      "n_ic": 18231,
+      "auc": 0.5381,
+      "n_auc": 18231,
+      "cross_sectional_decile_spread": {
+        "available": true,
+        "n_dates": 177,
+        "mean_spread_pct": 3.069,
+        "median_spread_pct": 2.892,
+        "pct_dates_positive": 67.8,
+        "spread_std": 8.373,
+        "spread_sharpe_like": 0.367
+      }
+    },
+    "realized_vol_20d": {
+      "ic": 0.1091,
+      "n_ic": 18231,
+      "auc": 0.5381,
+      "n_auc": 18231,
+      "cross_sectional_decile_spread": {
+        "available": true,
+        "n_dates": 177,
+        "mean_spread_pct": 2.735,
+        "median_spread_pct": 2.291,
+        "pct_dates_positive": 63.3,
+        "spread_std": 7.354,
+        "spread_sharpe_like": 0.372
+      }
+    }
+  },
+  "stability": {
+    "atr_pct": {
+      "by_year": {
+        "2022": 0.2476,
+        "2023": 0.1566,
+        "2024": 0.0313,
+        "2025": 0.119,
+        "2026": 0.0211
+      },
+      "by_sector": {
+        "communication_services": 0.0097,
+        "consumer_discretionary": 0.1239,
+        "consumer_staples": 0.0858,
+        "energy": 0.1453,
+        "financials": 0.1295,
+        "healthcare": 0.0918,
+        "industrials": 0.1711,
+        "materials": 0.1262,
+        "real_estate": 0.1276,
+        "semiconductors": 0.0327,
+        "software_internet": 0.072,
+        "technology": 0.0168,
+        "utilities": 0.1201
+      },
+      "by_trend_regime": {
+        "bear": 0.273,
+        "bull": 0.0578
+      },
+      "by_vol_regime": {
+        "low_vol": 0.0747,
+        "mid_vol": 0.0933,
+        "high_vol": 0.219
+      }
+    },
+    "realized_vol_20d": {
+      "by_year": {
+        "2022": 0.1844,
+        "2023": 0.1511,
+        "2024": 0.0292,
+        "2025": 0.1289,
+        "2026": 0.068
+      },
+      "by_sector": {
+        "communication_services": 0.0307,
+        "consumer_discretionary": 0.1217,
+        "consumer_staples": 0.0978,
+        "energy": 0.0829,
+        "financials": 0.096,
+        "healthcare": 0.1147,
+        "industrials": 0.1124,
+        "materials": 0.1262,
+        "real_estate": 0.172,
+        "semiconductors": 0.0312,
+        "software_internet": 0.055,
+        "technology": 0.0244,
+        "utilities": 0.113
+      },
+      "by_trend_regime": {
+        "bear": 0.2244,
+        "bull": 0.0655
+      },
+      "by_vol_regime": {
+        "low_vol": 0.0753,
+        "mid_vol": 0.079,
+        "high_vol": 0.1996
+      }
+    }
+  },
+  "placebo_tests": {
+    "A_current_vol_predicts_future_range": {
+      "ic": 0.48,
+      "n": 18231,
+      "interpretation": "expected strongly positive \u2014 volatility clusters, this is a sanity check not a finding"
+    },
+    "B_vol_predicts_return": {
+      "ic": 0.1091,
+      "n_ic": 18231,
+      "auc": 0.5381,
+      "n_auc": 18231,
+      "cross_sectional_decile_spread": {
+        "available": true,
+        "n_dates": 177,
+        "mean_spread_pct": 2.735,
+        "median_spread_pct": 2.291,
+        "pct_dates_positive": 63.3,
+        "spread_std": 7.354,
+        "spread_sharpe_like": 0.372
+      }
+    },
+    "C_future_range_vs_future_return": {
+      "ic": 0.1467,
+      "n": 18231,
+      "interpretation": "large moves mechanically have large range in the direction moved \u2014 expected strongly positive, not informative about predictability"
+    },
+    "D_vol_residualized_against_momentum": {
+      "raw_ic": 0.1091,
+      "residual_ic_after_removing_ret_20d": 0.1097,
+      "n": 18231,
+      "interpretation": "If residual_ic collapses toward 0 relative to raw_ic, volatility was mostly acting as a momentum proxy (stocks that already moved a lot are both more volatile AND more likely to keep moving). If residual_ic stays comparable to raw_ic, volatility carries information beyond momentum."
+    }
+  },
+  "volatility_momentum_interaction": [
+    {
+      "vol_tercile": "low_vol",
+      "mom_tercile": "down",
+      "n": 1676,
+      "mean_fwd_ret_pct": 0.522,
+      "win_rate_pct": 52.685
+    },
+    {
+      "vol_tercile": "low_vol",
+      "mom_tercile": "flat",
+      "n": 2707,
+      "mean_fwd_ret_pct": 0.238,
+      "win_rate_pct": 50.646
+    },
+    {
+      "vol_tercile": "low_vol",
+      "mom_tercile": "up",
+      "n": 1694,
+      "mean_fwd_ret_pct": 0.073,
+      "win_rate_pct": 51.004
+    },
+    {
+      "vol_tercile": "mid_vol",
+      "mom_tercile": "down",
+      "n": 1978,
+      "mean_fwd_ret_pct": 1.583,
+      "win_rate_pct": 58.595
+    },
+    {
+      "vol_tercile": "mid_vol",
+      "mom_tercile": "flat",
+      "n": 2075,
+      "mean_fwd_ret_pct": 1.006,
+      "win_rate_pct": 54.699
+    },
+    {
+      "vol_tercile": "mid_vol",
+      "mom_tercile": "up",
+      "n": 2024,
+      "mean_fwd_ret_pct": 1.0,
+      "win_rate_pct": 55.929
+    },
+    {
+      "vol_tercile": "high_vol",
+      "mom_tercile": "down",
+      "n": 2423,
+      "mean_fwd_ret_pct": 3.365,
+      "win_rate_pct": 61.37
+    },
+    {
+      "vol_tercile": "high_vol",
+      "mom_tercile": "flat",
+      "n": 1295,
+      "mean_fwd_ret_pct": 2.268,
+      "win_rate_pct": 57.22
+    },
+    {
+      "vol_tercile": "high_vol",
+      "mom_tercile": "up",
+      "n": 2359,
+      "mean_fwd_ret_pct": 1.966,
+      "win_rate_pct": 56.677
+    }
+  ],
+  "sector_neutral_spread": {
+    "available": true,
+    "per_sector": {
+      "communication_services": {
+        "n_dates": 177,
+        "mean_spread_pct": -0.127
+      },
+      "consumer_discretionary": {
+        "n_dates": 177,
+        "mean_spread_pct": 0.187
+      },
+      "consumer_staples": {
+        "n_dates": 177,
+        "mean_spread_pct": 0.685
+      },
+      "energy": {
+        "n_dates": 177,
+        "mean_spread_pct": 0.276
+      },
+      "financials": {
+        "n_dates": 177,
+        "mean_spread_pct": 0.16
+      },
+      "healthcare": {
+        "n_dates": 177,
+        "mean_spread_pct": 0.95
+      },
+      "industrials": {
+        "n_dates": 177,
+        "mean_spread_pct": 1.071
+      },
+      "materials": {
+        "n_dates": 177,
+        "mean_spread_pct": 0.42
+      },
+      "real_estate": {
+        "n_dates": 177,
+        "mean_spread_pct": 0.938
+      },
+      "semiconductors": {
+        "n_dates": 177,
+        "mean_spread_pct": 2.72
+      },
+      "software_internet": {
+        "n_dates": 177,
+        "mean_spread_pct": 1.71
+      },
+      "technology": {
+        "n_dates": 177,
+        "mean_spread_pct": -0.486
+      },
+      "utilities": {
+        "n_dates": 177,
+        "mean_spread_pct": 0.312
+      }
+    },
+    "mean_across_sectors_pct": 0.678,
+    "n_sectors_with_data": 13
+  },
+  "cost_sensitivity_raw_spread": {
+    "0bps": 2.735,
+    "5bps": 2.535,
+    "10bps": 2.335,
+    "25bps": 1.735,
+    "50bps": 0.735
+  },
+  "adversarial_tests": {
+    "shuffled_volatility": 0.0036,
+    "time_shifted_volatility_ic": 0.0227,
+    "sector_permuted_neutral_spread": 1.342
+  },
+  "bootstrap_ci": {
+    "available": true,
+    "n_boot": 500,
+    "mean_ic": 0.1084,
+    "ci_5_95": [
+      0.075,
+      0.1417
+    ],
+    "pct_boot_positive": 100.0
+  },
+  "golden_holdout": {
+    "holdout_period": [
+      "2026-01-16",
+      "2026-08-31"
+    ],
+    "n_rows": 3296,
+    "ic": 0.0367,
+    "n_ic": 2884,
+    "cross_sectional_decile_spread": {
+      "available": true,
+      "n_dates": 28,
+      "mean_spread_pct": 2.896,
+      "median_spread_pct": 2.504,
+      "pct_dates_positive": 64.3,
+      "spread_std": 10.323,
+      "spread_sharpe_like": 0.281
+    },
+    "note": "Frozen \u2014 evaluated exactly once against data no experiment above touched. Do not re-run tuning against this."
+  },
+  "multiple_testing": {
+    "n_ic_estimates_computed": 48,
+    "n_positive": 48,
+    "pct_positive": 100.0,
+    "note": "48 separate IC estimates were computed across features/years/sectors/regimes in this phase. With this many looks, some nominally-positive slices are expected by chance alone even under the null \u2014 read the AGGREGATE pattern (pct_positive, bootstrap CI, holdout) as the evidence, not any single favorable slice."
+  }
+}
