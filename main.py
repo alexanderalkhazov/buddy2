@@ -1,9 +1,11 @@
 """AI trading research assistant — console entry point.
 
 Subcommands:
-    report     zero-LLM data package for one ticker — bundle, scorecard, strategy
-               scan, backtest, position sizing — printed for you to paste into any
-               chatbot yourself. No API calls, no cost.
+    report     zero-LLM data package. With a ticker: bundle, scorecard, strategy
+               scan, backtest, position sizing for that ticker. With no ticker:
+               a market-wide report — regime, macro, broad news, sector opportunity
+               ranking. Printed for you to paste into any chatbot yourself. No API
+               calls, no cost.
 """
 
 from __future__ import annotations
@@ -20,8 +22,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="AI trading research assistant")
     sub = parser.add_subparsers(dest="command")
 
-    p_rp = sub.add_parser("report", help="zero-LLM data package for one ticker")
-    p_rp.add_argument("ticker")
+    p_rp = sub.add_parser("report", help="zero-LLM data package — per-ticker, or market-wide with no ticker")
+    p_rp.add_argument("ticker", nargs="?", default=None, help="omit for a market-wide report")
     p_rp.add_argument("--account-size", type=float, default=None, help="e.g. 100000")
     p_rp.add_argument("--risk-pct", type=float, default=1.0, help="percent of account to risk, default 1.0")
     p_rp.add_argument("--peers", nargs="*", default=None, help="tickers to compare against")
@@ -37,12 +39,16 @@ def main() -> None:
     # expansion (zsh/bash both treat a leading ^ specially) — resolve common
     # names to their real Yahoo symbol here so nobody has to fight their shell
     # to type an index ticker.
-    args.ticker = _TICKER_HINTS.get(args.ticker.upper().replace(" ", ""), args.ticker)
+    if args.ticker:
+        args.ticker = _TICKER_HINTS.get(args.ticker.upper().replace(" ", ""), args.ticker)
 
     try:
-        _run_report(args)
+        if args.ticker:
+            _run_report(args)
+        else:
+            _run_market_report(args)
     except ValueError as exc:
-        hint = _TICKER_HINTS.get(args.ticker.upper().replace(" ", ""))
+        hint = _TICKER_HINTS.get((args.ticker or "").upper().replace(" ", ""))
         console.print(f"[red]Error:[/] {exc}")
         if hint:
             console.print(f"[dim]Did you mean {hint!r}? Yahoo Finance uses that symbol instead.[/]")
@@ -81,6 +87,17 @@ def _run_report(args) -> None:
             peers=args.peers,
             refresh=args.refresh,
         )
+    print(text)
+    if args.out:
+        args.out.write_text(text)
+        console.print(f"\n[dim]also written to {args.out}[/]")
+
+
+def _run_market_report(args) -> None:
+    from ui.market_report import generate as generate_market
+
+    with console.status("Building market-wide report… (no API calls, fetches macro/news/13 sector indices)"):
+        text = generate_market(refresh=args.refresh)
     print(text)
     if args.out:
         args.out.write_text(text)
