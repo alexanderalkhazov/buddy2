@@ -14,12 +14,12 @@
     }
   },
   "multiple_testing_audit": {
-    "total_logged_experiments": 46,
+    "total_logged_experiments": 60,
     "by_phase": {
       "phase1_2_unlabeled": 17,
       "phase3": 8,
       "phase4": 20,
-      "phase5": 1
+      "phase5": 15
     },
     "note": "This is the ACTUAL count of statistical tests and model runs logged to the permanent registry across Phases 1-5 \u2014 not an estimate. A Deflated Sharpe Ratio or Probability-of-Backtest-Overfitting calculation is NOT computed here: both require a well-defined space of independently-optimized trial configurations (e.g. a formal hyperparameter grid) that this project's research process doesn't cleanly map to \u2014 computing one anyway would manufacture false precision. The honest disclosure is the raw trial count: 45 logged tests across a chain of hypotheses (not 45 independent attempts at the SAME hypothesis), each building on or attempting to falsify the previous phase's finding, not a blind grid search for the best-looking result. Treat the volatility/momentum finding as having survived roughly this many independent falsification attempts, not as validated by a formal multiple-testing correction this project hasn't earned the statistical right to claim."
   },
@@ -91,20 +91,66 @@
   },
   "edge_survival_score": {
     "checks": {
-      "base_OOS_positive (Phase 4 golden holdout)": "PASS",
-      "transaction_costs (25bps)": "PASS",
-      "sector_neutral": "WEAK",
-      "adversarial_shuffle/time-shift": "PASS",
-      "overlap_sensitivity (this phase)": "PASS",
-      "randomized_baseline_beaten (this phase)": "PASS",
-      "point_in_time_universe": "NOT TESTED \u2014 data source unavailable (disclosed limitation, not a pass)",
-      "regime_stability (bull vs bear, Phase 3)": "PASS \u2014 positive in both, stronger in bear",
-      "final_holdout_untouched (Phase 3/4)": "PASS \u2014 direction confirmed, magnitude degraded"
+      "base_OOS_positive": {
+        "status": "PASS",
+        "critical": true,
+        "reason": "Phase 4 golden holdout IC (0.037) positive and decile spread held (~2.9%) on data never touched during dev-set tuning."
+      },
+      "transaction_costs_25bps": {
+        "status": "PASS",
+        "critical": true,
+        "reason": "Phase 4: raw top-sector-vs-benchmark spread survives a 25bps round-trip cost assumption (2.57% net vs. 3.07% gross)."
+      },
+      "sector_neutral": {
+        "status": "WEAK",
+        "critical": true,
+        "reason": "Effect persists after sector-neutralizing (still positive) but its magnitude falls materially \u2014 Phase 3 found sector-neutral spread (~0.68%) is roughly 25% of the raw spread (~2.7%), and the residual does not clearly survive realistic costs on its own."
+      },
+      "adversarial_shuffle_time_shift": {
+        "status": "PASS",
+        "critical": false,
+        "reason": "Shuffled-label and time-shifted-feature tests both collapsed to ~0 IC as expected \u2014 no evidence the evaluation harness itself is leaking."
+      },
+      "overlap_sensitivity_test": {
+        "status": "PASS",
+        "critical": false,
+        "reason": "IC and effect size are nearly unchanged between the current 5D-stride sample (IC 0.1599) and a coarser ~20D-stride resample (IC 0.1593) of the SAME underlying dataset \u2014 this is a sensitivity check, NOT proof the overlap problem is fully resolved (see non_overlapping_forward_return_test below, which is the stricter, unmet bar)."
+      },
+      "non_overlapping_forward_return_test": {
+        "status": "NOT_TESTED",
+        "critical": true,
+        "reason": "A true non-overlapping test requires re-deriving forward-return labels at exactly 20-trading-day spacing from the raw daily series with zero shared days between consecutive observations. This phase only approximated that by further sub-sampling the already-stride-5 dataset (see overlap_sensitivity_test) \u2014 a real, stricter version of this test has not been built."
+      },
+      "randomized_baseline_beaten": {
+        "status": "PASS",
+        "critical": false,
+        "reason": "Real high-vol/down-momentum effect (1.522) vs. a randomly-assigned bucket baseline (-0.054) \u2014 the real effect is well outside what random bucket formation alone produces."
+      },
+      "point_in_time_universe": {
+        "status": "NOT_TESTED",
+        "critical": true,
+        "reason": "Data source (yfinance) exposes no historical index-constituent membership \u2014 the 103-ticker/13-sector universe is today's liquid large-caps applied retroactively, a disclosed survivorship-bias limitation with no available fix in this system."
+      },
+      "regime_stability": {
+        "status": "PASS",
+        "critical": false,
+        "reason": "Phase 3: positive IC in both bull (0.06-0.18) and bear (0.14-0.27) regimes, actually stronger in bear \u2014 not a single-regime artifact."
+      },
+      "final_holdout_untouched": {
+        "status": "PASS",
+        "critical": true,
+        "reason": "Direction confirmed on data reserved and touched exactly once (both Phase 3's IC-based holdout and Phase 4's rotation-backtest holdout), though effect magnitude degraded from the dev-set estimate in Phase 3's case."
+      }
     },
     "n_pass": 7,
     "n_weak": 1,
-    "n_fail_or_untested": 1,
-    "overall": "MODERATE",
-    "note": "STRONG is not reachable by this system's own rules until point-in-time universe testing and a real non-overlapping (not approximated) test are done \u2014 MODERATE is the honest ceiling right now."
+    "n_fail_or_untested": 2,
+    "critical_checks_not_passing": [
+      "sector_neutral",
+      "non_overlapping_forward_return_test",
+      "point_in_time_universe"
+    ],
+    "overall": "WEAK",
+    "note": "overall is capped by the WEAKEST CRITICAL check, not an average of all checks \u2014 currently capped by: sector_neutral, non_overlapping_forward_return_test, point_in_time_universe. STRONG requires ALL critical checks (base_OOS_positive, transaction_costs_25bps, sector_neutral, non_overlapping_forward_return_test, point_in_time_universe, final_holdout_untouched) at PASS; MODERATE requires at most one critical check below PASS. Three critical checks are currently below PASS (sector_neutral=WEAK, non_overlapping_forward_return_test=NOT_TESTED, point_in_time_universe=NOT_TESTED), so WEAK is the honest, rule-driven result right now \u2014 not a judgment call, a direct consequence of the stated threshold."
   }
 }

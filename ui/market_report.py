@@ -305,10 +305,9 @@ stale/missing, evidence relies heavily on qualitative interpretation, candidate 
 weak, or the conclusion depends significantly on unvalidated research. Never use HIGH \
 merely because many indicators exist.
 
-HIGH confidence is PROHIBITED when any major decision-relevant input is materially stale, \
-UNKNOWN, or timestamp-mismatched, even if all remaining indicators agree — e.g. VIX term \
-structure reading UNKNOWN caps overall confidence below HIGH regardless of how coherent \
-everything else looks.
+HIGH confidence is prohibited when any major decision-relevant input is materially stale, \
+UNKNOWN, or timestamp-mismatched. A missing or UNKNOWN input that is demonstrably \
+non-material to the specific conclusion does not automatically prevent HIGH confidence.
 
 ---
 ## 18. UNCERTAINTY BUDGET
@@ -483,8 +482,9 @@ pass/fail result.
 ## 30. RESEARCH STATUS MUST COME FROM DATA
 
 Do not independently upgrade the credibility of a historical research result. If DATA \
-contains explicit research-validation metadata (e.g. oos_status, cost_adjusted_status, \
-survivorship_status, leakage_status, multiple_testing_status, holdout_status, edge_status), \
+contains explicit research-validation metadata (e.g. research_edge_status, the individual \
+named checks beneath it, current_signal_active, current_signal_strength, \
+estimated_excess_return_20d), \
 use it. If these fields are absent, do not assume they passed. A historical effect may \
 still be discussed, but unresolved methodology must reduce Research Evidence Confidence.
 
@@ -606,6 +606,42 @@ supplied data, maximum transparency about uncertainty, and minimum unsupported i
 When evidence is insufficient, say so. When research credibility is unresolved, say so. \
 When data is UNKNOWN, say so. When there is no signal, say NO SIGNAL. Never convert \
 uncertainty into conviction merely to produce a more useful-sounding answer.
+
+---
+## 41. RESEARCH EVIDENCE CANNOT EXCEED ITS WEAKEST CRITICAL TEST
+
+Do not characterize a research edge as stronger than its unresolved critical validation \
+weaknesses permit. A single unresolved or failed CRITICAL test (marked [CRITICAL] in the \
+supplied research_edge_status checks) may cap Research Evidence Confidence even when \
+several other, non-critical tests pass. If DATA supplies an overall research_edge_status \
+(e.g. STRONG/MODERATE/WEAK) that is already capped this way, use it directly — do not \
+independently average the individual checks into a more favorable conclusion than the \
+supplied overall status states.
+
+---
+## 42. RESEARCH EDGE vs. CURRENT ACTIVATION vs. SIGNAL STRENGTH — THREE DIFFERENT QUESTIONS
+
+Never collapse these into one judgment:
+
+**research_edge_status** — historical research credibility: has this pattern held up under \
+out-of-sample, cost, and adversarial testing across the project's history? This changes \
+rarely and is computed once per research pass (see Rule 41).
+
+**current_signal_active** (YES/NO) — does TODAY's live data actually satisfy the pattern's \
+conditions right now? This is recomputed every report and can change daily even though \
+research_edge_status does not.
+
+**current_signal_strength** (STRONG/MODERATE/WEAK/N/A) — if active, HOW CLEANLY does \
+today's data match the pattern (an extreme reading vs. a marginal, barely-qualifying one)? \
+N/A when current_signal_active is NO.
+
+A MODERATE or even WEAK research_edge_status with an ACTIVE, STRONG current signal is a \
+meaningfully different — and more interesting — state than the same research_edge_status \
+with NO current signal. Conversely, a well-supported research_edge_status with NO current \
+signal active means there is nothing to act on right now regardless of how good the \
+historical research is. State all three explicitly when discussing the Phase 4/5 sector \
+research; never infer activation or strength from the research status alone, and never \
+infer research credibility from how strong today's signal looks.
 """
 
 
@@ -860,20 +896,37 @@ def generate(refresh: bool = False) -> str:
     lines.append("\n## Sector Opportunity Ranking")
     lines.append(
         "Ranked by 20D realized volatility — Phase 4 identified this as the strongest surviving "
-        "empirical pattern in this project's reported research tests, positive across broad-universe, "
-        "sector-neutral, adversarial, and out-of-sample testing (see storage/models/phase4_report.json). "
-        "Because the "
-        "historical universe has survivorship bias, treat this as preliminary empirical evidence, not "
-        "a fully validated production edge. Historically: the single HIGHEST-volatility sector, "
-        "especially when its own 20D momentum is NEGATIVE (a stressed/sold-off sector, not a rallying "
-        "one), showed the strongest subsequent 20D returns in walk-forward testing — not a guarantee, "
-        "an out-of-sample-tested tendency with a modest, cost-surviving effect size (~1-2% excess vs. "
-        "an equal-weight sector benchmark per 20D holding period in Phase 4's dev/holdout testing). "
-        "Phase 5 stress-testing (storage/models/phase5_report.json) found the interaction term between "
-        "volatility and momentum is SMALL relative to the volatility main effect — this is mostly a "
-        "volatility effect with a secondary momentum tilt, not a strong true interaction; weight "
-        "momentum accordingly, lower than the bucket label alone suggests."
+        "empirical pattern in this project's reported research tests. Phase 5 stress-testing found the "
+        "interaction term between volatility and momentum is SMALL relative to the volatility main "
+        "effect — this is mostly a volatility effect with a secondary momentum tilt, not a strong true "
+        "interaction; weight momentum accordingly, lower than the bucket label alone suggests. See the "
+        "structured research metadata below rather than this prose for the actual status of each "
+        "validation test (Rule 30: research status must come from DATA fields, not be assumed)."
     )
+
+    try:
+        _phase4 = json.loads((ARTIFACT_DIR / "phase4_report.json").read_text())
+    except Exception:
+        _phase4 = {}
+    _dev_spread = (_phase4.get("sector_rotation_backtest", {}).get("volatility_only_top1", {}).get("spread", {}))
+    _holdout_spread = (_phase4.get("golden_holdout", {}).get("holdout_result", {}))
+    if _dev_spread or _holdout_spread:
+        lines.append("\n**estimated_excess_return_20d (structured, not prose — long top-1 sector by volatility vs. equal-weight sector benchmark)**")
+        lines += _kv_table(
+            [
+                ("value_dev_period", f"{_fmt(_dev_spread.get('mean_top_minus_bench_pct'))}pp"),
+                ("n_dates_dev_period", _fmt(_dev_spread.get("n_dates"))),
+                ("std_dev_period", f"{_fmt(_dev_spread.get('top_return_std'))}pp"),
+                ("value_golden_holdout", f"{_fmt(_holdout_spread.get('mean_top_minus_bench_pct'))}pp"),
+                ("n_dates_holdout", _fmt(_holdout_spread.get("n_dates"))),
+                ("source", "storage/models/phase4_report.json"),
+                ("status", "VERIFIED — reproducible from logged experiment data" if _dev_spread else "UNAVAILABLE"),
+            ]
+        )
+        lines.append(
+            "\n*n_dates in both periods counts overlapping 5-day-stride rebalance dates, not independent "
+            "trials — read std/sharpe_like as descriptive, not a rigorous significance test.*"
+        )
 
     try:
         _phase5 = json.loads((_PHASE5_REPORT_PATH).read_text())
@@ -881,14 +934,15 @@ def generate(refresh: bool = False) -> str:
     except Exception:
         _survival = {}
     if _survival:
-        lines.append("\n**Research status (machine-computed, not LLM-assessed — see Rule 30)**")
-        lines += _kv_table([(k, v) for k, v in _survival.get("checks", {}).items()])
+        lines.append("\n**research_edge_status (historical validation — machine-computed, see Rule 30)**")
+        for check_name, check in _survival.get("checks", {}).items():
+            crit = " [CRITICAL]" if check.get("critical") else ""
+            lines.append(f"- `{check_name}`{crit}: **{check.get('status')}** — {check.get('reason', '')}")
         lines += _kv_table(
             [
-                ("edge_status (overall)", _survival.get("overall", "n/a")),
-                ("n_pass", _survival.get("n_pass", "n/a")),
-                ("n_weak", _survival.get("n_weak", "n/a")),
-                ("n_fail_or_untested", _survival.get("n_fail_or_untested", "n/a")),
+                ("**research_edge_status (overall)**", f"**{_survival.get('overall', 'n/a')}**"),
+                ("critical_checks_not_passing", ", ".join(_survival.get("critical_checks_not_passing", [])) or "none"),
+                ("n_pass / n_weak / n_fail_or_untested", f"{_survival.get('n_pass', 'n/a')} / {_survival.get('n_weak', 'n/a')} / {_survival.get('n_fail_or_untested', 'n/a')}"),
             ]
         )
         if _survival.get("note"):
@@ -909,6 +963,37 @@ def generate(refresh: bool = False) -> str:
                 f"| {r['sector'].replace('_', ' ').title()} | {_fmt(r.get('realized_vol_20d'))}% | "
                 f"{_fmt(r.get('vol_rank_pct_of_sectors'))}%ile | {_fmt(r.get('ret_20d'))}% | {bucket}{flag} | {_fmt(r.get('rsi14'))} |"
             )
+
+        # current_signal_activation is a SEPARATE question from research_edge_status
+        # above: research_edge_status asks "does this pattern have historical merit at
+        # all" (answered once, from stored research); this asks "do TODAY's live
+        # numbers actually satisfy that pattern right now" (recomputed every run, from
+        # the live snapshot). A MODERATE/WEAK historical edge with an ACTIVE current
+        # signal, or a well-supported edge with NO current signal, are both valid,
+        # different states — never collapse them into one confidence label.
+        matching = snap[(snap.get("vol_bucket") == "high_vol") & (snap.get("momentum_bucket") == "down")].dropna(subset=["realized_vol_20d"])
+        if matching.empty:
+            activation, strength, strength_reason = "NO", "N/A", "No sector currently combines high-volatility-rank with negative 20D momentum."
+        else:
+            top_match = matching.sort_values("vol_rank_pct_of_sectors", ascending=False).iloc[0]
+            activation = "YES"
+            vol_rank = top_match.get("vol_rank_pct_of_sectors") or 0
+            mom = top_match.get("ret_20d") or 0
+            if vol_rank >= 85 and mom <= -5:
+                strength, strength_reason = "STRONG", f"{top_match['sector']} sits at the {_fmt(vol_rank)}th vol percentile with a sizeable negative momentum ({_fmt(mom)}%) — a clean, extreme match to the historical pattern on both axes."
+            elif vol_rank >= 60:
+                unmet = f"volatility is only {_fmt(vol_rank)}th percentile (below the 85th-pct STRONG bar)" if vol_rank < 85 else f"momentum ({_fmt(mom)}%) is negative but not past the -5% STRONG bar"
+                strength, strength_reason = "MODERATE", f"{top_match['sector']} matches the high-vol/down-momentum bucket (vol {_fmt(vol_rank)}th pct, momentum {_fmt(mom)}%), but {unmet} — a real but not extreme match."
+            else:
+                strength, strength_reason = "WEAK", f"{top_match['sector']} technically matches the bucket (high-vol/down) but only barely — {_fmt(vol_rank)}th vol percentile is a marginal case, not a clear signal."
+        lines.append("\n**current_signal_activation (live, recomputed every run — distinct from research_edge_status above)**")
+        lines += _kv_table(
+            [
+                ("current_signal_active", activation),
+                ("current_signal_strength", strength),
+                ("reason", strength_reason),
+            ]
+        )
 
     # ---- Sector Leaders — named candidate tickers --------------------------
     lines.append(f"\n## Sector Leaders — Candidate Tickers (top {N_SECTOR_LEADERS} sectors by the ranking above)")

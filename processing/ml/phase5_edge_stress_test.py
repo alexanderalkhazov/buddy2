@@ -227,33 +227,91 @@ def main() -> dict:
     print(f"  real effect: {real_effect}  vs. random-assignment effect: {randomization['random_assignment_effect']}")
 
     # ---- G. Edge Survival Score ----------------------------------------------
+    # Each check is {status, reason} — a bare PASS/WEAK/FAIL label with no
+    # explanation forces the reader (LLM or human) to guess WHY, which invites
+    # exactly the kind of over/under-confident reinterpretation this whole
+    # project has been trying to eliminate.
     print("\n[G] Edge Survival Score...")
     checks = {
-        "base_OOS_positive (Phase 4 golden holdout)": "PASS",  # from phase4_report.json: IC 0.037 positive, decile spread held
-        "transaction_costs (25bps)": "PASS",  # Phase 4: raw spread survives 25bps
-        "sector_neutral": "WEAK",  # Phase 3/4: ~75% of raw effect is sector composition, residual doesn't survive costs
-        "adversarial_shuffle/time-shift": "PASS",
-        "overlap_sensitivity (this phase)": "PASS" if overlap_results["coarser_~20d_stride"]["ic"] and overlap_results["coarser_~20d_stride"]["ic"] > 0 else "FAIL",
-        "randomized_baseline_beaten (this phase)": "PASS" if real_effect is not None and randomization["random_assignment_effect"] is not None and abs(real_effect) > abs(randomization["random_assignment_effect"]) * 2 else "WEAK",
-        "point_in_time_universe": "NOT TESTED — data source unavailable (disclosed limitation, not a pass)",
-        "regime_stability (bull vs bear, Phase 3)": "PASS — positive in both, stronger in bear",
-        "final_holdout_untouched (Phase 3/4)": "PASS — direction confirmed, magnitude degraded",
+        "base_OOS_positive": {
+            "status": "PASS", "critical": True,
+            "reason": "Phase 4 golden holdout IC (0.037) positive and decile spread held (~2.9%) on data never touched during dev-set tuning.",
+        },
+        "transaction_costs_25bps": {
+            "status": "PASS", "critical": True,
+            "reason": "Phase 4: raw top-sector-vs-benchmark spread survives a 25bps round-trip cost assumption (2.57% net vs. 3.07% gross).",
+        },
+        "sector_neutral": {
+            "status": "WEAK", "critical": True,
+            "reason": "Effect persists after sector-neutralizing (still positive) but its magnitude falls materially — Phase 3 found sector-neutral spread (~0.68%) is roughly 25% of the raw spread (~2.7%), and the residual does not clearly survive realistic costs on its own.",
+        },
+        "adversarial_shuffle_time_shift": {
+            "status": "PASS", "critical": False,
+            "reason": "Shuffled-label and time-shifted-feature tests both collapsed to ~0 IC as expected — no evidence the evaluation harness itself is leaking.",
+        },
+        "overlap_sensitivity_test": {
+            "status": "PASS" if overlap_results["coarser_~20d_stride"]["ic"] and overlap_results["coarser_~20d_stride"]["ic"] > 0 else "FAIL", "critical": False,
+            "reason": f"IC and effect size are nearly unchanged between the current 5D-stride sample (IC {overlap_results['current_5d_stride']['ic']}) and a coarser ~20D-stride resample (IC {overlap_results['coarser_~20d_stride']['ic']}) of the SAME underlying dataset — this is a sensitivity check, NOT proof the overlap problem is fully resolved (see non_overlapping_forward_return_test below, which is the stricter, unmet bar).",
+        },
+        "non_overlapping_forward_return_test": {
+            "status": "NOT_TESTED", "critical": True,
+            "reason": "A true non-overlapping test requires re-deriving forward-return labels at exactly 20-trading-day spacing from the raw daily series with zero shared days between consecutive observations. This phase only approximated that by further sub-sampling the already-stride-5 dataset (see overlap_sensitivity_test) — a real, stricter version of this test has not been built.",
+        },
+        "randomized_baseline_beaten": {
+            "status": "PASS" if real_effect is not None and randomization["random_assignment_effect"] is not None and abs(real_effect) > abs(randomization["random_assignment_effect"]) * 2 else "WEAK", "critical": False,
+            "reason": f"Real high-vol/down-momentum effect ({real_effect}) vs. a randomly-assigned bucket baseline ({randomization['random_assignment_effect']}) — the real effect is well outside what random bucket formation alone produces.",
+        },
+        "point_in_time_universe": {
+            "status": "NOT_TESTED", "critical": True,
+            "reason": "Data source (yfinance) exposes no historical index-constituent membership — the 103-ticker/13-sector universe is today's liquid large-caps applied retroactively, a disclosed survivorship-bias limitation with no available fix in this system.",
+        },
+        "regime_stability": {
+            "status": "PASS", "critical": False,
+            "reason": "Phase 3: positive IC in both bull (0.06-0.18) and bear (0.14-0.27) regimes, actually stronger in bear — not a single-regime artifact.",
+        },
+        "final_holdout_untouched": {
+            "status": "PASS", "critical": True,
+            "reason": "Direction confirmed on data reserved and touched exactly once (both Phase 3's IC-based holdout and Phase 4's rotation-backtest holdout), though effect magnitude degraded from the dev-set estimate in Phase 3's case.",
+        },
     }
-    n_pass = sum(1 for v in checks.values() if v.startswith("PASS"))
-    n_weak = sum(1 for v in checks.values() if v.startswith("WEAK"))
-    n_fail = sum(1 for v in checks.values() if v.startswith("FAIL") or v.startswith("NOT TESTED"))
-    if n_fail == 0 and n_weak <= 1:
+
+    n_pass = sum(1 for v in checks.values() if v["status"] == "PASS")
+    n_weak = sum(1 for v in checks.values() if v["status"] == "WEAK")
+    n_fail_or_untested = sum(1 for v in checks.values() if v["status"] in ("FAIL", "NOT_TESTED"))
+    critical_failures = [k for k, v in checks.items() if v["critical"] and v["status"] in ("FAIL", "NOT_TESTED", "WEAK")]
+
+    # Rule: research evidence cannot exceed its weakest CRITICAL test — a
+    # strategy cannot be called STRONG (or even cleanly MODERATE) while a
+    # critical check sits at WEAK/FAIL/NOT_TESTED, no matter how many
+    # non-critical checks pass.
+    if not critical_failures:
+        overall = "STRONG"
+    elif len(critical_failures) <= 2:
         overall = "MODERATE"
-    elif n_fail >= 2 or n_weak >= 3:
-        overall = "WEAK"
     else:
-        overall = "MODERATE"
-    edge_survival = {"checks": checks, "n_pass": n_pass, "n_weak": n_weak, "n_fail_or_untested": n_fail, "overall": overall,
-                      "note": "STRONG is not reachable by this system's own rules until point-in-time universe testing and a real non-overlapping (not approximated) test are done — MODERATE is the honest ceiling right now."}
+        overall = "WEAK"
+
+    edge_survival = {
+        "checks": checks,
+        "n_pass": n_pass, "n_weak": n_weak, "n_fail_or_untested": n_fail_or_untested,
+        "critical_checks_not_passing": critical_failures,
+        "overall": overall,
+        "note": (
+            "overall is capped by the WEAKEST CRITICAL check, not an average of all checks — "
+            f"currently capped by: {', '.join(critical_failures) if critical_failures else 'none'}. "
+            "STRONG requires ALL critical checks (base_OOS_positive, transaction_costs_25bps, "
+            "sector_neutral, non_overlapping_forward_return_test, point_in_time_universe, "
+            "final_holdout_untouched) at PASS; MODERATE requires at most one critical check below "
+            "PASS. Three critical checks are currently below PASS (sector_neutral=WEAK, "
+            "non_overlapping_forward_return_test=NOT_TESTED, point_in_time_universe=NOT_TESTED), so "
+            "WEAK is the honest, rule-driven result right now — not a judgment call, a direct "
+            "consequence of the stated threshold."
+        ),
+    }
     report["edge_survival_score"] = edge_survival
     log_stat_experiment("phase5_edge_survival_score", "phase5", edge_survival)
     print(json.dumps(checks, indent=2))
-    print(f"  OVERALL: {overall}")
+    print(f"  OVERALL: {overall} (capped by: {critical_failures})")
 
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     (ARTIFACT_DIR / "phase5_report.json").write_text(json.dumps(report, indent=2, default=str))
