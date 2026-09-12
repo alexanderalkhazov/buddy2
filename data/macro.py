@@ -22,6 +22,16 @@ SERIES = {
     "FEDFUNDS": ("Federal funds effective rate", "%", "monthly"),
     "UNRATE": ("Unemployment rate", "%", "monthly"),
     "A191RL1Q225SBEA": ("Real GDP growth (annualized, quarterly)", "%", "quarterly"),
+    # Daily-updated official series (not lagged like the four above) — these are
+    # FRED's OWN pre-computed spreads, not derived from yfinance ETF prices, so
+    # they double as an independent cross-check on processing/macro.py's own
+    # yield-curve calculation (the exact kind of value that produced a real bug
+    # once already when computed by hand from a mis-scaled input).
+    "T10Y2Y": ("10Y minus 2Y Treasury yield spread (official)", "pct points", "daily"),
+    "T10Y3M": ("10Y minus 3-month Treasury yield spread (official)", "pct points", "daily"),
+    "DGS2": ("2-Year Treasury yield", "%", "daily"),
+    "BAMLH0A0HYM2": ("High-yield corporate credit spread (ICE BofA OAS)", "pct points", "daily"),
+    "BAMLC0A0CM": ("Investment-grade corporate credit spread (ICE BofA OAS)", "pct points", "daily"),
 }
 
 

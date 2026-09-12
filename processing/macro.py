@@ -81,8 +81,78 @@ def market_proxies() -> dict:
     return out
 
 
-def full_macro_context(include_economic: bool = True, include_polymarket: bool = True) -> dict:
-    """Everything macro this system can fetch, kept in three explicitly labeled
+_BREADTH_TICKERS = {
+    "^VIX9D": "9-Day VIX (near-term vol expectation)",
+    "^VIX": "30-Day VIX (standard)",
+    "^VIX3M": "3-Month VIX (medium-term vol expectation)",
+    "^VVIX": "VVIX — volatility of VIX itself (options-market stress-of-stress)",
+}
+
+
+def us_market_breadth(days: int = 20) -> dict:
+    """Signals about the HEALTH of the US market's advance, not just its level:
+    is the rally broad (small-caps and the average stock participating) or
+    narrow (a handful of mega-caps carrying a cap-weighted index)? Is the
+    options market pricing near-term calm or near-term stress relative to
+    further out (VIX term structure)? None of this is in market_regime() or
+    market_proxies() — a real gap flagged in earlier reports, filled here."""
+    from processing.bundle import history_window
+
+    out: dict = {}
+
+    for ticker, label in _BREADTH_TICKERS.items():
+        try:
+            snap = snapshot(ticker, get_ohlcv(ticker))
+            out[ticker] = {"label": label, "last": snap.last, "as_of": snap.as_of}
+        except Exception as exc:
+            out[ticker] = {"label": label, "error": f"{type(exc).__name__}: {exc}"}
+
+    vix9d, vix, vix3m = out.get("^VIX9D", {}).get("last"), out.get("^VIX", {}).get("last"), out.get("^VIX3M", {}).get("last")
+    dates = {k: out.get(k, {}).get("as_of") for k in ("^VIX9D", "^VIX", "^VIX3M")}
+    valid_dates = [d for d in dates.values() if d]
+    # A term-structure read compares levels that must actually be from the same
+    # (or near-same) day — yfinance has genuinely stopped updating ^VIX9D/^VIX3M
+    # daily bars before (observed: frozen ~2 months while ^VIX kept updating).
+    # Comparing a live leg to a stale one would assert a false contango/
+    # backwardation conclusion, so refuse to conclude rather than guess.
+    stale_mismatch = len(valid_dates) >= 2 and (max(valid_dates) != min(valid_dates))
+    if vix9d is not None and vix3m is not None and not stale_mismatch:
+        term_structure_state = (
+            "BACKWARDATION (near-term vol priced ABOVE longer-term — a sign of acute, "
+            "current market stress, e.g. around a known near-term event or an active selloff)"
+            if vix9d > vix3m else
+            "CONTANGO (near-term vol priced below longer-term — the normal, calm state)"
+        )
+    elif stale_mismatch:
+        term_structure_state = f"UNKNOWN — legs have mismatched as-of dates ({dates}), a stale/frozen data feed for one leg would make any contango/backwardation conclusion unreliable"
+    else:
+        term_structure_state = None
+    out["vix_term_structure_state"] = term_structure_state
+
+    breadth_pairs = {
+        "equal_weight_vs_cap_weight": ("RSP", "SPY", "Equal-weight S&P vs. cap-weight S&P — positive means the AVERAGE stock is keeping up with the index (broad participation); negative means a handful of mega-caps are carrying the index while most stocks lag."),
+        "small_cap_vs_large_cap": ("IWM", "SPY", "Russell 2000 (small-cap) ETF vs. S&P 500 — small-caps leading is historically associated with risk-on breadth; small-caps lagging badly can flag narrow, fragile leadership."),
+    }
+    for key, (a, b, note) in breadth_pairs.items():
+        try:
+            ret_a = history_window(a, days=days).get("return_pct")
+            ret_b = history_window(b, days=days).get("return_pct")
+            spread = round(ret_a - ret_b, 3) if ret_a is not None and ret_b is not None else None
+        except Exception:
+            spread, ret_a, ret_b = None, None, None
+        out[key] = {"a": a, "b": b, f"{a}_return_pct_{days}d": ret_a, f"{b}_return_pct_{days}d": ret_b, "spread_pct_points": spread, "note": note}
+
+    out["note"] = (
+        f"Breadth spreads use trailing {days}-calendar-day returns of liquid ETF proxies (RSP, IWM), "
+        "same daily-close data source as the rest of this system — not a true advance/decline or "
+        "%-above-SMA breadth count across all listed stocks, which this system does not have a data "
+        "source for. VIX term structure uses CBOE's own published 9-day/30-day/3-month indices."
+    )
+    return out
+
+
+def full_macro_context(include_economic: bool = True, include_polymarket: bool = True, include_breadth: bool = True) -> dict:
+    """Everything macro this system can fetch, kept in explicitly labeled
     groups rather than merged into one blob or one score."""
     out = {"market_proxies": market_proxies()}
 
@@ -94,6 +164,12 @@ def full_macro_context(include_economic: bool = True, include_polymarket: bool =
         except Exception as exc:
             out["economic_indicators"] = {"error": f"{type(exc).__name__}: {exc}"}
 
+    if include_breadth:
+        try:
+            out["market_breadth"] = us_market_breadth()
+        except Exception as exc:
+            out["market_breadth"] = {"error": f"{type(exc).__name__}: {exc}"}
+
     if include_polymarket:
         try:
             from data.polymarket import macro_context
@@ -101,5 +177,23 @@ def full_macro_context(include_economic: bool = True, include_polymarket: bool =
             out["prediction_markets"] = macro_context()
         except Exception as exc:
             out["prediction_markets"] = {"error": f"{type(exc).__name__}: {exc}"}
+
+    # Independent cross-check: compare our own yfinance-derived 10Y-13W spread
+    # against FRED's OWN official 10Y-3M spread (T10Y3M) — different maturities
+    # (13-week bill vs 3-month) so they won't match exactly, but they should be
+    # close. A material mismatch would have caught the exact x10-scaling bug
+    # this system already shipped once, from an independent second source.
+    derived = out.get("market_proxies", {}).get("yield_curve_10y_minus_13w_pct_points")
+    official = None
+    if include_economic:
+        official = (out.get("economic_indicators", {}).get("T10Y3M") or {}).get("value")
+    if derived is not None and official is not None:
+        diff = round(abs(derived - official), 4)
+        out["yield_curve_cross_check"] = {
+            "our_derived_10y_minus_13w": derived,
+            "fred_official_10y_minus_3m": official,
+            "abs_difference_pct_points": diff,
+            "flag": "MISMATCH — investigate a scaling/calculation bug" if diff > 0.5 else "consistent",
+        }
 
     return out

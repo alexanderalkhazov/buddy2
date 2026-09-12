@@ -54,7 +54,17 @@ in backtest), not a strong signal. The "high_vol/down momentum" flag marks the h
 strongest bucket found — cite it as that, not as a guarantee.
 3. The Market News Digest is a 5-ticker, 48-hour SAMPLE, not comprehensive coverage — don't \
 treat the absence of a topic in it as evidence that nothing relevant happened.
-4. FRED macro indicators are lagged (weeks to months) and revised — never call them "current."
+4. FRED's monthly/quarterly indicators (CPI, GDP, unemployment) are lagged (weeks to months) and \
+revised — never call them "current." Its DAILY indicators (yield-curve spreads, 2Y yield, high-yield \
+and investment-grade CREDIT SPREADS) are genuinely ~1-day-fresh — use these, not the lagged ones, when \
+reasoning about current risk appetite. A widening high-yield spread is a real, direct signal of rising \
+credit stress/risk-off sentiment — treat it with real weight, more directly tied to near-term equity \
+risk than CPI is.
+4a. US Market Breadth data: equal-weight-vs-cap-weight and small-cap-vs-large-cap spreads tell you \
+whether a market move is BROAD (most stocks participating) or NARROW (a few mega-caps only) — a \
+narrow advance is more fragile than a broad one, regardless of the index level. VIX term structure \
+(9-day vs 3-month) in BACKWARDATION is a real stress signal; if it reads UNKNOWN, that means the \
+underlying data feed is stale for one leg — say so, don't guess a state.
 5. This report has NO ticker-specific entry/stop/target/position-sizing for ANY instrument — \
 name specific candidates below, but tell me to run `python main.py report TICKER` on each named \
 candidate before acting, since only that report computes real trade levels for it.
@@ -245,15 +255,61 @@ def generate(refresh: bool = False) -> str:
 
     econ = macro_ctx.get("economic_indicators", {})
     if econ and "error" not in econ:
-        lines.append("\n### Official Economic Indicators (FRED — lagged, subject to revision)")
-        rows = []
-        for series, info in econ.items():
-            if isinstance(info, dict) and "value" in info:
-                rows.append((info.get("label", series), f"{_fmt(info.get('value'))} {info.get('unit', '')} (as of {info.get('as_of', 'n/a')})"))
-        if rows:
-            lines += _kv_table(rows)
+        lagged = [(k, v) for k, v in econ.items() if isinstance(v, dict) and "value" in v and v.get("cadence") in ("monthly", "quarterly")]
+        daily = [(k, v) for k, v in econ.items() if isinstance(v, dict) and "value" in v and v.get("cadence") == "daily"]
+
+        if lagged:
+            lines.append("\n### Official Economic Indicators (FRED — monthly/quarterly, genuinely lagged)")
+            lines += _kv_table([(v.get("label", k), f"{_fmt(v.get('value'))} {v.get('unit', '')} (as of {v.get('as_of', 'n/a')})") for k, v in lagged])
+        if daily:
+            lines.append("\n### Official Daily Rate & Credit Indicators (FRED — updates daily, NOT lagged like the series above)")
+            lines.append(
+                "These update with roughly a 1-day lag, unlike CPI/GDP/unemployment above — a genuinely "
+                "current read on rates and corporate credit stress, from FRED's own official series."
+            )
+            lines += _kv_table([(v.get("label", k), f"{_fmt(v.get('value'))} {v.get('unit', '')} (change {_fmt(v.get('change'))}, as of {v.get('as_of', 'n/a')})") for k, v in daily])
     elif econ.get("error"):
         lines.append(f"Error: {econ['error']}")
+
+    xcheck = macro_ctx.get("yield_curve_cross_check")
+    if xcheck:
+        flag_style = "**MISMATCH**" if "MISMATCH" in xcheck["flag"] else xcheck["flag"]
+        lines.append(
+            f"\n*Cross-check: our own derived 10Y−13W spread ({_fmt(xcheck['our_derived_10y_minus_13w'])}) vs. "
+            f"FRED's official 10Y−3M spread ({_fmt(xcheck['fred_official_10y_minus_3m'])}) — different "
+            f"maturities so an exact match isn't expected, but a large gap would flag a calculation bug. "
+            f"Difference: {_fmt(xcheck['abs_difference_pct_points'])}pp — {flag_style}.*"
+        )
+
+    breadth = macro_ctx.get("market_breadth", {})
+    if breadth and "error" not in breadth:
+        lines.append("\n### US Market Breadth & Volatility Term Structure")
+        lines.append(
+            "Is the advance broad or narrow, and is the options market pricing near-term calm or stress? "
+            "Neither question is answered by the Market Regime section above (index trend + VIX level only)."
+        )
+        lines += _kv_table(
+            [
+                ("VIX9D / VIX / VIX3M", f"{_fmt(breadth.get('^VIX9D', {}).get('last'))} / {_fmt(breadth.get('^VIX', {}).get('last'))} / {_fmt(breadth.get('^VIX3M', {}).get('last'))}"),
+                ("**VIX term structure**", f"**{breadth.get('vix_term_structure_state', 'n/a')}**"),
+                ("VVIX (vol-of-vol)", _fmt(breadth.get("^VVIX", {}).get("last"))),
+            ]
+        )
+        ew = breadth.get("equal_weight_vs_cap_weight", {})
+        sc = breadth.get("small_cap_vs_large_cap", {})
+        lines.append("\n**Participation breadth:**")
+        lines += _kv_table(
+            [
+                ("Equal-weight (RSP) vs. cap-weight (SPY), 20D", f"{_fmt(ew.get('spread_pct_points'))}pp"),
+                ("Small-cap (IWM) vs. large-cap (SPY), 20D", f"{_fmt(sc.get('spread_pct_points'))}pp"),
+            ]
+        )
+        lines.append(f"\n*{ew.get('note', '')}*")
+        lines.append(f"\n*{sc.get('note', '')}*")
+        if breadth.get("note"):
+            lines.append(f"\n*{breadth['note']}*")
+    elif breadth.get("error"):
+        lines.append(f"\nMarket breadth unavailable this run: {breadth['error']}")
 
     poly = macro_ctx.get("prediction_markets")
     lines.append("\n### Prediction Markets (Polymarket)")

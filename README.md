@@ -59,8 +59,25 @@ to reason over it.
      WTI crude, gold — all daily-close market pricing (what the market is
      pricing right now).
    - *Official economic indicators*: CPI, Fed funds rate, unemployment, real
-     GDP growth — via FRED's public CSV endpoint, no key needed. Lagged by
-     weeks to months, explicitly labeled with their as-of date.
+     GDP growth (monthly/quarterly, genuinely lagged) **plus** daily-updated
+     official series — 10Y-2Y and 10Y-3M yield-curve spreads, the 2Y yield,
+     and high-yield/investment-grade corporate credit spreads — all via
+     FRED's public CSV endpoint, no key needed, each labeled with its actual
+     as-of date and update cadence so the lagged and near-real-time series
+     are never confused.
+   - *US Market Breadth & Volatility Term Structure*: equal-weight (RSP) vs.
+     cap-weight (SPY) and small-cap (IWM) vs. large-cap spreads — is a move
+     broad or narrow — plus VIX 9-day/30-day/3-month term structure
+     (contango/backwardation). If the underlying data feed for one leg goes
+     stale (this has happened — yfinance froze `^VIX9D`/`^VIX3M` for ~2
+     months once), the report says `UNKNOWN` rather than asserting a false
+     reading from mismatched-freshness data.
+   - *Cross-check*: the report's own derived 10Y-13W spread is automatically
+     compared against FRED's official 10Y-3M spread every run and flagged if
+     they diverge by more than 0.5pp — a caught-a-real-bug-once safeguard
+     (see `processing/macro.py`'s `_normalize_yield_pct`, which fixed a case
+     where a silent yfinance format change turned a real 1.06pp spread into
+     a wrong 0.11pp).
    - *Prediction markets*: Polymarket odds on Fed decisions, recession,
      inflation, unemployment (best-effort; degrades to an empty list if the
      API is unreachable rather than failing the whole report).
