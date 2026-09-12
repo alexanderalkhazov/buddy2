@@ -165,11 +165,29 @@ def generate(refresh: bool = False) -> str:
 
     # ---- Market Regime -------------------------------------------------
     lines.append("\n## Market Regime")
+    lines.append(
+        "This is an index-trend + VIX filter, not a full breadth/credit/rates regime model — "
+        "the component table below shows exactly which SMAs each index is above/below so the "
+        "'mixed' label isn't a black box. No market-breadth (% of stocks above their own SMA, "
+        "advance/decline, equal-weight vs. cap-weight), credit-spread, or VIX-term-structure data "
+        "is in this system — a real gap flagged rather than glossed over."
+    )
     mr = regime.market_regime()
+    for key, label in (("spy", "SPY"), ("qqq", "QQQ")):
+        idx = mr.get(key, {})
+        lines.append(f"\n**{label}**")
+        lines += _kv_table(
+            [
+                ("Above 20d SMA", "YES" if idx.get("above_20sma") else "NO"),
+                ("Above 50d SMA", "YES" if idx.get("above_50sma") else "NO"),
+                ("Above 200d SMA", "YES" if idx.get("above_200sma") else "NO"),
+                ("RSI14", _fmt(idx.get("rsi14"))),
+                ("Trend bucket", idx.get("trend_bucket", "n/a")),
+            ]
+        )
+    lines.append("\n**Summary**")
     lines += _kv_table(
         [
-            ("SPY trend", mr.get("spy", {}).get("trend_bucket", "n/a")),
-            ("QQQ trend", mr.get("qqq", {}).get("trend_bucket", "n/a")),
             ("**Overall trend (SPY & QQQ agreement required)**", f"**{mr.get('overall_trend', 'n/a')}**"),
             ("VIX level", _fmt(mr.get("vix", {}).get("last"))),
             ("VIX regime", mr.get("vix", {}).get("regime", "n/a")),
@@ -185,6 +203,28 @@ def generate(refresh: bool = False) -> str:
         macro_ctx = macro_mod.full_macro_context()
     except Exception as exc:
         macro_ctx = {"error": str(exc)[:200]}
+
+    lines.append(
+        "\n**MACRO FRESHNESS** — this data is NOT all the same age. Read the numbers below "
+        "with these gaps in mind, don't treat them as one equally-current snapshot:"
+    )
+    _today = datetime.now(timezone.utc).date()
+    _freshness_rows = []
+    _mp = macro_ctx.get("market_proxies", {})
+    _proxy_dates = [v.get("as_of") for v in _mp.values() if isinstance(v, dict) and v.get("as_of")]
+    if _proxy_dates:
+        _age = (_today - pd.Timestamp(max(_proxy_dates)).date()).days
+        _freshness_rows.append(("Market prices / yields / dollar / commodities", f"{max(_proxy_dates)} ({_age}d old — daily close, not intraday)"))
+    _econ = macro_ctx.get("economic_indicators", {})
+    _econ_dates = [v.get("as_of") for v in _econ.values() if isinstance(v, dict) and v.get("as_of")]
+    if _econ_dates:
+        _oldest = min(_econ_dates)
+        _newest = max(_econ_dates)
+        _age = (_today - pd.Timestamp(_oldest).date()).days
+        _freshness_rows.append(("Economic releases (FRED)", f"{_oldest} to {_newest} — oldest series is {_age}d old (monthly/quarterly cadence, expect this)"))
+    _freshness_rows.append(("News digest", "last 48h lookback window"))
+    _freshness_rows.append(("Prediction markets", "queried live just now — no historical timestamp exposed by this data source"))
+    lines += _kv_table(_freshness_rows)
 
     proxies = macro_ctx.get("market_proxies", {})
     if proxies:
