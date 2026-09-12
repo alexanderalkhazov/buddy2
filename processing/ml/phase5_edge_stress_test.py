@@ -237,9 +237,9 @@ def main() -> dict:
             "status": "PASS", "critical": True,
             "reason": "Phase 4 golden holdout IC (0.037) positive and decile spread held (~2.9%) on data never touched during dev-set tuning.",
         },
-        "transaction_costs_25bps": {
+        "transaction_costs_50bps_total": {
             "status": "PASS", "critical": True,
-            "reason": "Phase 4: raw top-sector-vs-benchmark spread survives a 25bps round-trip cost assumption (2.57% net vs. 3.07% gross).",
+            "reason": "Phase 4: gross top-sector return survives a 50bps total rebalance cost (25bps per transaction side x 2 sides: closing the previous position + opening the new one) — 2.57% net vs. 3.07% gross.",
         },
         "sector_neutral": {
             "status": "WEAK", "critical": True,
@@ -265,9 +265,9 @@ def main() -> dict:
             "status": "NOT_TESTED", "critical": True,
             "reason": "Data source (yfinance) exposes no historical index-constituent membership — the 103-ticker/13-sector universe is today's liquid large-caps applied retroactively, a disclosed survivorship-bias limitation with no available fix in this system.",
         },
-        "regime_stability": {
+        "directional_regime_consistency": {
             "status": "PASS", "critical": False,
-            "reason": "Phase 3: positive IC in both bull (0.06-0.18) and bear (0.14-0.27) regimes, actually stronger in bear — not a single-regime artifact.",
+            "reason": "Phase 3: IC stays positive (same direction) in both bull (0.06-0.18) and bear (0.14-0.27) regimes — not a single-regime artifact. This tests DIRECTION only; effect-size (magnitude) stability across regimes has not been separately tested, and the bear-regime IC being notably higher means magnitude is NOT stable — do not read this check as claiming stable effect size.",
         },
         "final_holdout_untouched": {
             "status": "PASS", "critical": True,
@@ -299,7 +299,7 @@ def main() -> dict:
         "note": (
             "overall is capped by the WEAKEST CRITICAL check, not an average of all checks — "
             f"currently capped by: {', '.join(critical_failures) if critical_failures else 'none'}. "
-            "STRONG requires ALL critical checks (base_OOS_positive, transaction_costs_25bps, "
+            "STRONG requires ALL critical checks (base_OOS_positive, transaction_costs_50bps_total, "
             "sector_neutral, non_overlapping_forward_return_test, point_in_time_universe, "
             "final_holdout_untouched) at PASS; MODERATE requires at most one critical check below "
             "PASS. Three critical checks are currently below PASS (sector_neutral=WEAK, "

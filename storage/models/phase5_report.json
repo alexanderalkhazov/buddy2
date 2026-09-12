@@ -14,12 +14,12 @@
     }
   },
   "multiple_testing_audit": {
-    "total_logged_experiments": 60,
+    "total_logged_experiments": 74,
     "by_phase": {
       "phase1_2_unlabeled": 17,
       "phase3": 8,
       "phase4": 20,
-      "phase5": 15
+      "phase5": 29
     },
     "note": "This is the ACTUAL count of statistical tests and model runs logged to the permanent registry across Phases 1-5 \u2014 not an estimate. A Deflated Sharpe Ratio or Probability-of-Backtest-Overfitting calculation is NOT computed here: both require a well-defined space of independently-optimized trial configurations (e.g. a formal hyperparameter grid) that this project's research process doesn't cleanly map to \u2014 computing one anyway would manufacture false precision. The honest disclosure is the raw trial count: 45 logged tests across a chain of hypotheses (not 45 independent attempts at the SAME hypothesis), each building on or attempting to falsify the previous phase's finding, not a blind grid search for the best-looking result. Treat the volatility/momentum finding as having survived roughly this many independent falsification attempts, not as validated by a formal multiple-testing correction this project hasn't earned the statistical right to claim."
   },
@@ -96,10 +96,10 @@
         "critical": true,
         "reason": "Phase 4 golden holdout IC (0.037) positive and decile spread held (~2.9%) on data never touched during dev-set tuning."
       },
-      "transaction_costs_25bps": {
+      "transaction_costs_50bps_total": {
         "status": "PASS",
         "critical": true,
-        "reason": "Phase 4: raw top-sector-vs-benchmark spread survives a 25bps round-trip cost assumption (2.57% net vs. 3.07% gross)."
+        "reason": "Phase 4: gross top-sector return survives a 50bps total rebalance cost (25bps per transaction side x 2 sides: closing the previous position + opening the new one) \u2014 2.57% net vs. 3.07% gross."
       },
       "sector_neutral": {
         "status": "WEAK",
@@ -131,10 +131,10 @@
         "critical": true,
         "reason": "Data source (yfinance) exposes no historical index-constituent membership \u2014 the 103-ticker/13-sector universe is today's liquid large-caps applied retroactively, a disclosed survivorship-bias limitation with no available fix in this system."
       },
-      "regime_stability": {
+      "directional_regime_consistency": {
         "status": "PASS",
         "critical": false,
-        "reason": "Phase 3: positive IC in both bull (0.06-0.18) and bear (0.14-0.27) regimes, actually stronger in bear \u2014 not a single-regime artifact."
+        "reason": "Phase 3: IC stays positive (same direction) in both bull (0.06-0.18) and bear (0.14-0.27) regimes \u2014 not a single-regime artifact. This tests DIRECTION only; effect-size (magnitude) stability across regimes has not been separately tested, and the bear-regime IC being notably higher means magnitude is NOT stable \u2014 do not read this check as claiming stable effect size."
       },
       "final_holdout_untouched": {
         "status": "PASS",
@@ -151,6 +151,6 @@
       "point_in_time_universe"
     ],
     "overall": "WEAK",
-    "note": "overall is capped by the WEAKEST CRITICAL check, not an average of all checks \u2014 currently capped by: sector_neutral, non_overlapping_forward_return_test, point_in_time_universe. STRONG requires ALL critical checks (base_OOS_positive, transaction_costs_25bps, sector_neutral, non_overlapping_forward_return_test, point_in_time_universe, final_holdout_untouched) at PASS; MODERATE requires at most one critical check below PASS. Three critical checks are currently below PASS (sector_neutral=WEAK, non_overlapping_forward_return_test=NOT_TESTED, point_in_time_universe=NOT_TESTED), so WEAK is the honest, rule-driven result right now \u2014 not a judgment call, a direct consequence of the stated threshold."
+    "note": "overall is capped by the WEAKEST CRITICAL check, not an average of all checks \u2014 currently capped by: sector_neutral, non_overlapping_forward_return_test, point_in_time_universe. STRONG requires ALL critical checks (base_OOS_positive, transaction_costs_50bps_total, sector_neutral, non_overlapping_forward_return_test, point_in_time_universe, final_holdout_untouched) at PASS; MODERATE requires at most one critical check below PASS. Three critical checks are currently below PASS (sector_neutral=WEAK, non_overlapping_forward_return_test=NOT_TESTED, point_in_time_universe=NOT_TESTED), so WEAK is the honest, rule-driven result right now \u2014 not a judgment call, a direct consequence of the stated threshold."
   }
 }

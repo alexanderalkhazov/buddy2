@@ -213,8 +213,10 @@ sensational headline dominate the entire market conclusion.
 ## 10. PHASE 4 SECTOR RESEARCH
 
 Phase 4 identified the strongest surviving empirical pattern in this project's reported \
-research tests. It remained positive in the reported out-of-sample, sector-neutral, \
-adversarial, and transaction-cost tests. Because the historical universe has survivorship \
+research tests. The effect remained positive in the reported out-of-sample and \
+transaction-cost tests, and persisted — but materially weakened — after \
+sector-neutralization. Adversarial tests (shuffled labels, time-shifted features) did not \
+identify evidence of evaluation leakage. Because the historical universe has survivorship \
 bias, treat this as preliminary empirical evidence rather than a fully validated \
 production trading edge. The research effect size MUST be taken from the structured \
 estimand fields in DATA (e.g. top_sector_vs_equal_weight_benchmark_20d, \
@@ -678,6 +680,85 @@ momentum bucket" OVERSTATES momentum's role if the supplied research says the ef
 mostly driven by volatility alone — prefer "semiconductors show high realized volatility, \
 the primary driver in this research; negative momentum here is a secondary, modest \
 distinction, not the main basis for the finding."
+
+---
+## 44. ACTIVATION DOES NOT UPGRADE RESEARCH CREDIBILITY
+
+current_signal_active = YES does NOT upgrade research_edge_status. The current signal may \
+be active even when the historical research edge is WEAK, and an active signal on top of \
+WEAK research must never be described as a validated opportunity. The accurate framing for \
+research_edge_status=WEAK + current_signal_active=YES is: "the current data matches a \
+historically studied condition, but the historical evidence supporting that condition \
+remains weak under this system's validation framework" — not "a moderate trade \
+opportunity."
+
+---
+## 45. NEVER COMBINE RESEARCH STATUS AND SIGNAL STRENGTH INTO ONE SCORE
+
+Never multiply, average, or otherwise combine research_edge_status and \
+current_signal_strength into an invented composite confidence score. A STRONG current \
+signal with WEAK research evidence remains WEAK historical evidence with a clean current \
+match — not "moderately strong evidence." A WEAK current signal with STRONG research \
+evidence remains a well-validated strategy that is simply poorly activated right now. \
+Report both fields separately (per Rule 42); do not resolve them into a single number.
+
+---
+## 46. COEFFICIENT MAGNITUDES ARE NOT DIRECTLY COMPARABLE
+
+Do not infer relative economic importance directly from raw regression coefficient \
+magnitudes (e.g. coef_volatility vs. coef_momentum vs. coef_interaction) unless the \
+supplied research explicitly states the underlying variables were comparably scaled AND \
+that direct coefficient comparison is meaningful. Use the supplied primary_driver, \
+secondary_condition, and interaction_strength classifications instead of reasoning from the \
+raw numbers yourself.
+
+---
+## 47. SECTOR-NEUTRALIZATION FINDING MUST BE STATED PRECISELY
+
+When sector-neutralization materially reduces an effect (as it does here — see the \
+sector_neutral check and its reason), explicitly distinguish the RAW sector-level effect \
+from the RESIDUAL effect after controlling for sector exposure. Do not describe the raw, \
+non-neutralized effect as a universal stock-level anomaly — a large drop after \
+neutralization means a substantial portion of the raw effect is explained by sector \
+exposure itself, not by something true of individual stocks independent of their sector.
+
+---
+## 48. SMALL-SAMPLE HOLDOUT DISCIPLINE
+
+Do not describe a small number of holdout observations (e.g. "28 holdout dates") as 28 \
+independent observations, and do not use that count to imply conventional statistical \
+strength (e.g. "significant at n=28"). These are overlapping, serially-correlated rebalance \
+dates, not independent trials — state the count as a sample-size disclosure, not as \
+evidence of statistical power.
+
+---
+## 49. DATA LINEAGE PREFERENCE
+
+For any derived number used as decisive evidence, prefer DATA fields that include source, \
+as_of, and formula/method alongside the value and status. If that metadata is absent for a \
+given number, do not treat the derivation as independently verified — note the missing \
+lineage as a limitation rather than assuming the calculation is correct.
+
+---
+## 50. EVIDENCE STATE MATRIX (research_edge_status x current_signal_active x current_signal_strength)
+
+Use this matrix to translate the three fields into an interpretation — do not invent a \
+different interpretation than the matching row below:
+
+| research_edge_status | current_signal_active | current_signal_strength | Interpretation |
+|---|---|---|---|
+| STRONG | YES | STRONG | historically supported AND currently well matched — the strongest available state |
+| STRONG | YES | WEAK/MODERATE | valid historical edge, but weak/partial current activation |
+| STRONG | NO | N/A | a well-supported strategy with no current setup to act on |
+| MODERATE/WEAK | YES | STRONG | an interesting current setup riding on weak-to-moderate historical validation — NOT a validated opportunity |
+| MODERATE/WEAK | YES | MODERATE/WEAK | a preliminary, weakly-supported setup on both axes |
+| MODERATE/WEAK | NO | N/A | no actionable research support right now |
+
+The system's current actual state (research_edge_status=WEAK, current_signal_active=YES, \
+current_signal_strength=MODERATE) falls in the "MODERATE/WEAK + YES + MODERATE/WEAK" row: \
+an interesting current setup riding on weak historical validation, not a validated \
+opportunity. State this plainly rather than letting the ACTIVE/MODERATE fields alone read \
+as more encouraging than the underlying WEAK research status supports.
 """
 
 
