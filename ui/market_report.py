@@ -137,7 +137,9 @@ mechanically linked (same underlying index, same time window) does not multiply 
 of the evidence. Correlation or simultaneous movement between two indicators does not \
 establish that one causes or explains the other — state that two things moved together, \
 not that one is driving the other, unless the supplied research has specifically \
-demonstrated that link.
+demonstrated that link. Do not increase conviction merely because multiple indicators \
+express the same underlying market state in different forms — evidence strength should \
+reflect independent information, not the number of fields supporting the same narrative.
 
 ---
 ## 5. CURRENT MARKET ENVIRONMENT
@@ -182,7 +184,7 @@ percentile/range information is not supplied, do NOT invent it.
 CPI, unemployment, GDP are lagged economic observations — never call them "current market \
 conditions." Use them as structural macro context, not short-term market timing signals. \
 Daily FRED series (Treasury spreads, Treasury yields, credit spreads) can be used as more \
-current market-based evidence, subject to their stated as_of date.
+recent market-based evidence, subject to their stated as_of date.
 
 ---
 ## 8. PREDICTION MARKETS
@@ -205,11 +207,11 @@ sensational headline dominate the entire market conclusion.
 ---
 ## 10. PHASE 4 SECTOR RESEARCH
 
-The Phase 4 sector research is the strongest empirical pattern identified in this \
-project's Phase 1-4 research that remained positive in the reported out-of-sample, \
-sector-neutral, adversarial, and transaction-cost tests. Because the historical universe \
-has survivorship bias, treat this as preliminary empirical evidence rather than a fully \
-validated production trading edge. The reported finding is approximately ~1-2% excess \
+Phase 4 identified the strongest surviving empirical pattern in this project's reported \
+research tests. It remained positive in the reported out-of-sample, sector-neutral, \
+adversarial, and transaction-cost tests. Because the historical universe has survivorship \
+bias, treat this as preliminary empirical evidence rather than a fully validated \
+production trading edge. The reported finding is approximately ~1-2% excess \
 return per 20D holding period under the stated research methodology — a historical \
 tendency, not a forecast. The high-volatility/negative-momentum bucket is "the \
 historically strongest bucket found in this research," NOT "the sector most likely to \
@@ -356,6 +358,13 @@ changes."
 Rank surviving candidates as BEST SUPPORTED / SECONDARY / WATCH ONLY, reflecting evidence \
 quality and alignment — never arbitrary numerical probabilities or personal preference.
 
+A candidate cannot be classified BEST SUPPORTED unless it has at least two materially \
+distinct pieces of instrument-level evidence, or one strong instrument-level signal plus \
+the validated sector evidence. "In sector #1" plus "above its 200 SMA" alone is not enough \
+— e.g. a candidate with sector membership + trend + a specific RSI/momentum reading is much \
+stronger support than one with sector membership + trend alone; the latter is at most \
+SECONDARY or WATCH ONLY.
+
 Recommend no more than 3 candidates total unless the supplied evidence clearly justifies \
 more. Prefer a smaller set of stronger candidates over a broad watchlist.
 
@@ -382,7 +391,9 @@ is supported. Do not equate sector ranking with a guaranteed trade.
 SECONDARY / WATCH ONLY]` plus one concise evidence-based explanation using actual supplied \
 data. If none pass the filter: NO CANDIDATES. Do not force candidates.
 
-**Decision** — exactly TRADE / WAIT / NO TRADE, with why.
+**Decision** — exactly TRADE / WAIT / NO TRADE, with why. Immediately follow with a single \
+"Decision basis:" line — one sentence naming the decisive evidence and the main constraint \
+— so the conclusion doesn't get buried in a longer narrative.
 
 **Confidence** — Overall / Equity / Index / Crypto, each LOW/MEDIUM/HIGH (only for \
 categories that exist in the DATA), with the main reason for each level.
@@ -663,9 +674,10 @@ def generate(refresh: bool = False) -> str:
     # ---- Sector Opportunity Ranking ---------------------------------------
     lines.append("\n## Sector Opportunity Ranking")
     lines.append(
-        "Ranked by 20D realized volatility — the strongest empirical pattern identified in this "
-        "project's Phase 1-4 research that remained positive across broad-universe, sector-neutral, "
-        "adversarial, and out-of-sample testing (see storage/models/phase4_report.json). Because the "
+        "Ranked by 20D realized volatility — Phase 4 identified this as the strongest surviving "
+        "empirical pattern in this project's reported research tests, positive across broad-universe, "
+        "sector-neutral, adversarial, and out-of-sample testing (see storage/models/phase4_report.json). "
+        "Because the "
         "historical universe has survivorship bias, treat this as preliminary empirical evidence, not "
         "a fully validated production edge. Historically: the single HIGHEST-volatility sector, "
         "especially when its own 20D momentum is NEGATIVE (a stressed/sold-off sector, not a rallying "
