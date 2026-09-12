@@ -216,11 +216,13 @@ Phase 4 identified the strongest surviving empirical pattern in this project's r
 research tests. It remained positive in the reported out-of-sample, sector-neutral, \
 adversarial, and transaction-cost tests. Because the historical universe has survivorship \
 bias, treat this as preliminary empirical evidence rather than a fully validated \
-production trading edge. The reported finding is approximately ~1-2% excess \
-return per 20D holding period under the stated research methodology — a historical \
-tendency, not a forecast. The high-volatility/negative-momentum bucket is "the \
-historically strongest bucket found in this research," NOT "the sector most likely to \
-rise," "a guaranteed winner," "a buy signal," or "a proven alpha source."
+production trading edge. The research effect size MUST be taken from the structured \
+estimand fields in DATA (e.g. top_sector_vs_equal_weight_benchmark_20d, \
+gross_top_sector_return_20d) — do not use a generic prose estimate when a structured \
+effect-size field is available, and do not compare different estimands as though they were \
+the same statistic. The high-volatility/negative-momentum bucket is "the historically \
+strongest bucket found in this research," NOT "the sector most likely to rise," "a \
+guaranteed winner," "a buy signal," or "a proven alpha source."
 
 **Mandatory limitation**: the sector universe has survivorship bias (current liquid \
 large-cap names, not point-in-time historical constituents) — acknowledge this explicitly \
@@ -401,7 +403,11 @@ data. If none pass the filter: NO CANDIDATES. Do not force candidates.
 
 **Decision** — exactly TRADE / WAIT / NO TRADE, with why. Immediately follow with a single \
 "Decision basis:" line — one sentence naming the decisive evidence and the main constraint \
-— so the conclusion doesn't get buried in a longer narrative.
+— so the conclusion doesn't get buried in a longer narrative. Then a "Decision scope:" line \
+— exactly one of MARKET / SECTOR / CANDIDATE — naming what level the decision actually \
+applies to (recall Rule 37: TRADE always means "proceed to candidate-level validation," so \
+scope will normally be CANDIDATE when specific tickers are named, or SECTOR/MARKET when the \
+conclusion is broader than any single named instrument).
 
 **Confidence** — Overall / Equity / Index / Crypto, each LOW/MEDIUM/HIGH (only for \
 categories that exist in the DATA), with the main reason for each level.
@@ -552,6 +558,15 @@ WEAK or MODERATE. Do not classify a ticker as BEST SUPPORTED solely because it \
 belongs to the highest-ranked sector, is above its 200 SMA, is well known, appears in \
 news, or is considered "high quality." Prefer 1-3 strong candidates over a broad list. \
 Maximum recommended candidates: 3 unless the DATA clearly justifies more.
+
+Historical research may support a candidate only when its scope (see edge_scope in DATA) \
+matches the candidate's asset class, direction, unit of analysis, and horizon. The Phase \
+4/5 research is SECTOR-level, 20-day, long-only, equities-only evidence — it can justify \
+investigating an individual stock IN that sector as a candidate worth further validation, \
+but it does NOT make that individual ticker itself statistically validated. A weak or \
+moderate sector-level 20D research result cannot be upgraded into strong support for one \
+specific stock merely because the stock belongs to that sector — the sector evidence and \
+the instrument-level evidence remain two separate, individually-weighed inputs.
 
 ---
 ## 37. DECISION SEMANTICS
@@ -962,7 +977,7 @@ def generate(refresh: bool = False) -> str:
                 [
                     ("cost_per_side_bps", 25),
                     ("n_sides_per_rebalance", 2),
-                    ("sides_explanation", "closing the previous period's position + opening the new period's position, each at 25bps"),
+                    ("cost_basis", "closing_previous_position + opening_new_position"),
                     ("total_cost_bps", 50),
                     ("gross_top_sector_return_20d_dev", f"{_fmt(_dev_spread.get('mean_top_return_pct'))}%"),
                     ("net_top_sector_return_20d_dev_after_50bps", f"{_fmt(_dev_costs.get('25bps'))}%"),
@@ -1017,16 +1032,17 @@ def generate(refresh: bool = False) -> str:
     if "error" in snap.columns and snap["realized_vol_20d"].isna().all():
         lines.append("Sector snapshot unavailable this run.")
     else:
-        lines.append("\n| Sector | 20D Realized Vol | Vol Rank | 20D Momentum | Vol/Momentum Bucket | RSI14 |")
-        lines.append("|---|---|---|---|---|---|")
+        lines.append("\n| Sector | 20D Realized Vol | Vol Rank | 20D Momentum | Primary Signal | Secondary Modifier | RSI14 |")
+        lines.append("|---|---|---|---|---|---|---|")
         for _, r in snap.iterrows():
             if pd.isna(r.get("realized_vol_20d")):
                 continue
-            bucket = f"{r.get('vol_bucket', 'n/a')} / {r.get('momentum_bucket', 'n/a')}"
-            flag = " **← historically strongest bucket**" if r.get("vol_bucket") == "high_vol" and r.get("momentum_bucket") == "down" else ""
+            primary = "HIGH_VOL" if r.get("vol_bucket") == "high_vol" else "LOW_VOL"
+            secondary = "NEGATIVE_MOMENTUM" if r.get("momentum_bucket") == "down" else "POSITIVE_MOMENTUM"
+            flag = " **← primary+secondary both match the research finding**" if primary == "HIGH_VOL" and secondary == "NEGATIVE_MOMENTUM" else ""
             lines.append(
                 f"| {r['sector'].replace('_', ' ').title()} | {_fmt(r.get('realized_vol_20d'))}% | "
-                f"{_fmt(r.get('vol_rank_pct_of_sectors'))}%ile | {_fmt(r.get('ret_20d'))}% | {bucket}{flag} | {_fmt(r.get('rsi14'))} |"
+                f"{_fmt(r.get('vol_rank_pct_of_sectors'))}%ile | {_fmt(r.get('ret_20d'))}% | {primary} | {secondary}{flag} | {_fmt(r.get('rsi14'))} |"
             )
 
         # current_signal_activation is a SEPARATE question from research_edge_status
@@ -1062,7 +1078,16 @@ def generate(refresh: bool = False) -> str:
                 ("strength_rule_WEAK", "vol_percentile below 60th (a marginal activation-rule pass)"),
                 ("strength_rule_N/A", "current_signal_active is NO"),
                 ("reason", strength_reason),
+                ("edge_scope", "asset_class=equities, unit=sectors, direction=long, benchmark=equal_weight_sector — NOT automatically applicable to crypto, indices, or individual stocks"),
+                ("research_horizon", "20 trading days"),
+                ("current_signal_horizon", "20 trading days — this signal says nothing about tomorrow or next week specifically"),
             ]
+        )
+        lines.append(
+            "\n*current_signal_strength measures how strongly today's data matches the historical signal "
+            "DEFINITION (i.e. how extreme the vol/momentum readings are) — it does NOT measure expected "
+            "return, probability of success, or trade quality. A STRONG match to the pattern's definition "
+            "is not the same claim as a strong expected trade outcome.*"
         )
 
     # ---- Sector Leaders — named candidate tickers --------------------------
