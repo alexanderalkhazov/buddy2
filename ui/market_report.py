@@ -13,7 +13,9 @@ finding is surfaced here as a ranked, caveated snapshot, not a forecast.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pandas as pd
 
@@ -23,9 +25,12 @@ from processing import macro as macro_mod
 from processing import news_proc, regime
 from processing.indicators import snapshot as price_snapshot
 from processing.ml.features import FEATURE_COLUMNS, compute_features
+from processing.ml.registry import ARTIFACT_DIR
 from processing.ml.sector_index import build_sector_index
 from processing.ml.universe import BENCHMARK, EXPANDED_UNIVERSE_V2
 from storage.cache import get_ohlcv
+
+_PHASE5_REPORT_PATH = ARTIFACT_DIR / "phase5_report.json"
 
 # Bellwether tickers used as a stand-in for "market news" — no single feed
 # covers "everything happening in the market," so this blends broad-index
@@ -421,6 +426,186 @@ market direction.
 
 Your objective is maximum analytical honesty and decision usefulness, not maximum \
 decisiveness.
+
+---
+# SUPPLEMENTARY RULES — TAKE PRECEDENCE OVER SECTIONS 1-25 ABOVE WHERE THEY CONFLICT
+
+Numbered 26-40 to avoid colliding with the sections above. Rule 39 (Final Output) REPLACES \
+Section 24's output structure — use Rule 39's structure, not Section 24's, when producing \
+the response. Rule 27 (three confidence dimensions) similarly replaces Section 17's single \
+LOW/MEDIUM/HIGH confidence — report all three dimensions from Rule 27, not one blended score.
+
+---
+## 26. DATA-QUALITY RELEVANCE
+
+Do not treat every missing, stale, or UNKNOWN field as equally important. For every \
+materially missing, stale, or mismatched input, determine whether it is DECISION-RELEVANT \
+to the specific conclusion being reached. A missing indicator that is not relevant to the \
+candidate or decision does not automatically invalidate the analysis. Do not upgrade \
+confidence merely because many other indicators are available.
+
+---
+## 27. THREE DISTINCT CONFIDENCE DIMENSIONS
+
+Report these separately when applicable — do not collapse them into one vague judgment. \
+Confidence is NOT the probability of a future market move.
+
+**Data Quality Confidence** (LOW/MEDIUM/HIGH) — how trustworthy, fresh, complete, and \
+internally consistent are the underlying inputs?
+
+**Research Evidence Confidence** (LOW/MEDIUM/HIGH) — how credible is the historical \
+research supporting the relevant edge, given its stated methodology and limitations?
+
+**Decision Confidence** (LOW/MEDIUM/HIGH) — how coherent and decision-relevant is the \
+current evidence for this specific market/candidate conclusion?
+
+---
+## 28. HIGH-CONFIDENCE RESTRICTION
+
+HIGH Decision Confidence is prohibited when a materially missing, stale, mismatched, or \
+UNKNOWN input is decision-relevant to the conclusion. However, a missing indicator that is \
+demonstrably non-material to the specific conclusion does not automatically prevent HIGH \
+confidence. Explain why an important UNKNOWN field is or is not decision-relevant.
+
+---
+## 29. RESEARCH-VALIDITY DISCIPLINE
+
+Never assume a backtest is valid merely because the DATA labels it "OOS," "walk-forward," \
+"adversarial," or "validated." Assess only the methodology explicitly supplied in DATA. \
+Look for unresolved risks: look-ahead bias; feature leakage; universe-selection leakage; \
+survivorship bias; parameter-selection leakage; holdout contamination; overlapping \
+forward-return labels; data-snooping/multiple-testing bias; unrealistic transaction \
+costs/slippage; future constituent information entering historical tests. If the DATA does \
+not establish a risk was controlled, state that it remains unresolved. Do not invent a \
+pass/fail result.
+
+---
+## 30. RESEARCH STATUS MUST COME FROM DATA
+
+Do not independently upgrade the credibility of a historical research result. If DATA \
+contains explicit research-validation metadata (e.g. oos_status, cost_adjusted_status, \
+survivorship_status, leakage_status, multiple_testing_status, holdout_status, edge_status), \
+use it. If these fields are absent, do not assume they passed. A historical effect may \
+still be discussed, but unresolved methodology must reduce Research Evidence Confidence.
+
+---
+## 31. TECHNICAL INDICATORS ARE DESCRIPTIVE BY DEFAULT
+
+RSI, SMA relationships, price changes, realized volatility, momentum, and similar \
+technical variables are DESCRIPTIVE STATE VARIABLES unless the DATA explicitly provides \
+validated evidence that they predict future returns. Do NOT claim "RSI 66 means the stock \
+will fall," "above the 200 SMA means the stock will rise," "oversold means a rebound is \
+likely," or "high volatility means upside." Use them to describe the current state unless \
+a validated research result explicitly establishes a relationship.
+
+---
+## 32. NO SIGNAL ≠ NEGATIVE SIGNAL
+
+**NO SIGNAL** = a tested signal was available and did not currently fire. **UNKNOWN / \
+UNRELIABLE** = the signal could not be evaluated because required data is missing, stale, \
+malformed, or unreliable. Do not put NO SIGNAL into Evidence Against unless another \
+supplied fact independently supports the negative conclusion.
+
+---
+## 33. EVIDENCE INDEPENDENCE
+
+Do not inflate evidence strength by counting multiple representations of the same \
+underlying information — e.g. SPY trend + SPY RSI + S&P 500 trend; QQQ trend + Nasdaq \
+trend; multiple maturities derived from the same yield curve; several related breadth \
+measures over the same short period. These may provide useful context, but they do not \
+become independent confirmations merely because there are multiple fields. Evidence weight \
+should reflect independent information, not the number of rows supporting a narrative.
+
+---
+## 34. CAUSALITY
+
+Correlation, co-movement, or temporal proximity does not establish causation. When DATA \
+only shows two variables moved together, describe that observation. Only describe one \
+variable as causing, driving, explaining, or predicting another when (1) the supplied \
+research explicitly demonstrates that relationship, or (2) the causal mechanism is \
+directly established by the supplied evidence. Do not create macroeconomic stories from \
+coincident price movements.
+
+---
+## 35. SECTOR EDGE INTERPRETATION
+
+The Phase 4 sector result is a historical empirical pattern, not a directional market \
+forecast. Do not reverse the implication: presence of the historical high-volatility/ \
+down-momentum pattern does not prove upside; absence of the historical pattern does not \
+prove downside; failure of the sector edge does not automatically become a bearish signal. \
+Only use the direction explicitly demonstrated by the underlying research.
+
+---
+## 36. CANDIDATE QUALITY
+
+A candidate may only be recommended when the DATA contains concrete instrument-level \
+evidence. For BEST SUPPORTED, require either at least two materially distinct pieces of \
+instrument-level evidence, or one strong instrument-level signal plus validated \
+sector/research evidence. Do not classify a ticker as BEST SUPPORTED solely because it \
+belongs to the highest-ranked sector, is above its 200 SMA, is well known, appears in \
+news, or is considered "high quality." Prefer 1-3 strong candidates over a broad list. \
+Maximum recommended candidates: 3 unless the DATA clearly justifies more.
+
+---
+## 37. DECISION SEMANTICS
+
+TRADE means: proceed to ticker-specific validation because the market-level evidence is \
+sufficiently coherent to justify running the ticker-specific report. It does NOT mean \
+enter a position, buy, sell, or that the trade will succeed. WAIT means: an identifiable \
+opportunity exists, but an important confirmation, data-quality condition, or \
+candidate-level condition is missing. NO TRADE means: the available evidence does not \
+justify proceeding to ticker-specific validation.
+
+---
+## 38. DECISION BASIS
+
+Immediately after the Decision line, provide exactly one sentence: **Decision basis:** \
+[the decisive evidence + the main limiting factor]. Do not bury the decision in a long \
+narrative.
+
+---
+## 39. FINAL OUTPUT (replaces Section 24)
+
+Use exactly this structure:
+
+**Market Read**
+
+**Evidence For**
+
+**Evidence Against**
+
+**Sector Focus**
+
+**Recommended Candidates**
+
+**Decision**
+
+**Decision basis**
+
+**Confidence**
+- Data Quality Confidence
+- Research Evidence Confidence
+- Decision Confidence
+- Equity Confidence
+- Index Confidence
+- Crypto Confidence
+
+Only include asset-class confidence when that category exists in DATA.
+
+**What Would Change My Mind**
+
+**Uncertainty Budget**
+
+**Next Step**
+
+---
+## 40. ABSOLUTE RULE
+
+The objective is not maximum decisiveness. The objective is: maximum fidelity to the \
+supplied data, maximum transparency about uncertainty, and minimum unsupported inference. \
+When evidence is insufficient, say so. When research credibility is unresolved, say so. \
+When data is UNKNOWN, say so. When there is no signal, say NO SIGNAL. Never convert \
+uncertainty into conviction merely to produce a more useful-sounding answer.
 """
 
 
@@ -683,8 +868,32 @@ def generate(refresh: bool = False) -> str:
         "especially when its own 20D momentum is NEGATIVE (a stressed/sold-off sector, not a rallying "
         "one), showed the strongest subsequent 20D returns in walk-forward testing — not a guarantee, "
         "an out-of-sample-tested tendency with a modest, cost-surviving effect size (~1-2% excess vs. "
-        "an equal-weight sector benchmark per 20D holding period in Phase 4's dev/holdout testing)."
+        "an equal-weight sector benchmark per 20D holding period in Phase 4's dev/holdout testing). "
+        "Phase 5 stress-testing (storage/models/phase5_report.json) found the interaction term between "
+        "volatility and momentum is SMALL relative to the volatility main effect — this is mostly a "
+        "volatility effect with a secondary momentum tilt, not a strong true interaction; weight "
+        "momentum accordingly, lower than the bucket label alone suggests."
     )
+
+    try:
+        _phase5 = json.loads((_PHASE5_REPORT_PATH).read_text())
+        _survival = _phase5.get("edge_survival_score", {})
+    except Exception:
+        _survival = {}
+    if _survival:
+        lines.append("\n**Research status (machine-computed, not LLM-assessed — see Rule 30)**")
+        lines += _kv_table([(k, v) for k, v in _survival.get("checks", {}).items()])
+        lines += _kv_table(
+            [
+                ("edge_status (overall)", _survival.get("overall", "n/a")),
+                ("n_pass", _survival.get("n_pass", "n/a")),
+                ("n_weak", _survival.get("n_weak", "n/a")),
+                ("n_fail_or_untested", _survival.get("n_fail_or_untested", "n/a")),
+            ]
+        )
+        if _survival.get("note"):
+            lines.append(f"\n*{_survival['note']}*")
+
     snap = _sector_snapshot(refresh=refresh)
     if "error" in snap.columns and snap["realized_vol_20d"].isna().all():
         lines.append("Sector snapshot unavailable this run.")
@@ -759,10 +968,11 @@ def generate(refresh: bool = False) -> str:
         ]
     )
     lines.append(
-        "\n---\nNow respond using the exact structure specified in Section 24 of the prompt "
-        "above (Market Read / Evidence For / Evidence Against / Sector Focus / Recommended "
-        "Candidates / Decision / Confidence / What Would Change My Mind / Uncertainty Budget "
-        "/ Next Step)."
+        "\n---\nNow respond using the exact structure specified in Rule 39 (Final Output) of "
+        "the prompt above — Rule 39 supersedes Section 24 — (Market Read / Evidence For / "
+        "Evidence Against / Sector Focus / Recommended Candidates / Decision / Decision basis "
+        "/ Confidence [Data Quality / Research Evidence / Decision / per-asset-class] / What "
+        "Would Change My Mind / Uncertainty Budget / Next Step)."
     )
 
     return "\n".join(lines)
