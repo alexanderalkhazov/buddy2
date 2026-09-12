@@ -103,13 +103,31 @@ to reason over it.
    but modest, and that the sector universe is survivorship-biased (today's
    liquid large-caps per sector, not point-in-time historical constituents).
 
-The report opens with a reasoning prompt (not a data dump with a disclaimer
-tacked on) that instructs an AI to: read the regime/macro/news for agreement
-or conflict, weigh the sector ranking honestly, name specific candidates
-across stocks/indices/crypto *only* when grounded in a cited data point
-above, give a confidence level per asset class, and explicitly answer
-**NO TRADE** when the evidence doesn't justify one rather than forcing a
-recommendation.
+The report opens with a full "hardened analyst" prompt (`SYSTEM_BLOCK` in
+`ui/market_report.py`) — not a data dump with a disclaimer tacked on. It
+walks an AI through a strict, ordered decision framework before it's allowed
+to conclude anything:
+
+1. **Data quality gate** — checks freshness, timestamp alignment across
+   sections, and internal consistency *before* interpreting anything.
+2. **Evidence hierarchy** — Tier 1 (current deterministic market data) always
+   outranks Tier 3 (news/prediction markets) and Tier 4 (the AI's own
+   reasoning); a headline can never silently override contradicting hard data.
+3. **Conflict analysis** — trend/volatility/breadth/credit/rates/sector/news
+   are checked against each other and rated LOW/MODERATE/HIGH conflict; high
+   conflict pushes the answer toward WAIT or NO TRADE.
+4. **Candidate filter** — a ticker may only be named if a specific supplied
+   data point supports it (never "it's famous" or "it's in a hot sector").
+5. **Decision** — exactly one of `TRADE` / `WAIT` / `NO TRADE`, each a
+   legitimate, non-forced answer — `NO TRADE` is explicitly framed as a
+   successful result, not a failure to answer.
+
+It also draws an explicit line the AI is told never to cross: never invent a
+statistic, probability, backtest result, or confidence interval that wasn't
+actually supplied in the DATA section below the prompt; never call lagged
+data "current"; never treat a Polymarket price as an objective probability;
+never provide entry/stop/target/position-sizing (that's what `report TICKER`
+is for).
 
 ---
 
