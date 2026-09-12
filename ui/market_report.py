@@ -233,8 +233,10 @@ confidence intervals, p-values, Sharpe ratios, drawdowns, or sample counts not s
 ## 11. SECTOR OPPORTUNITY ≠ AUTOMATIC TRADE
 
 A sector ranked highly does NOT automatically justify buying one of its members. Required: \
-validated sector evidence + current sector condition + instrument-level evidence + \
-acceptable evidence quality = a candidate worthy of further investigation. A sector ranking \
+historically supported sector/research evidence (per research_edge_status — do NOT call it \
+"validated" when research_edge_status is WEAK or MODERATE) + current sector condition + \
+instrument-level evidence + acceptable evidence quality = a candidate worthy of further \
+investigation. A sector ranking \
 alone is insufficient.
 
 ---
@@ -364,7 +366,9 @@ quality and alignment — never arbitrary numerical probabilities or personal pr
 
 A candidate cannot be classified BEST SUPPORTED unless it has at least two materially \
 distinct pieces of instrument-level evidence, or one strong instrument-level signal plus \
-the validated sector evidence. "In sector #1" plus "above its 200 SMA" alone is not enough \
+the historically supported sector/research evidence (per research_edge_status — never call \
+it "validated" evidence when the supplied status is WEAK or MODERATE). "In sector #1" plus \
+"above its 200 SMA" alone is not enough \
 — e.g. a candidate with sector membership + trend + a specific RSI/momentum reading is much \
 stronger support than one with sector membership + trend alone; the latter is at most \
 SECONDARY or WATCH ONLY.
@@ -484,7 +488,8 @@ pass/fail result.
 Do not independently upgrade the credibility of a historical research result. If DATA \
 contains explicit research-validation metadata (e.g. research_edge_status, the individual \
 named checks beneath it, current_signal_active, current_signal_strength, \
-estimated_excess_return_20d), \
+top_sector_vs_equal_weight_benchmark_20d, gross_top_sector_return_20d, \
+transaction_cost_model), \
 use it. If these fields are absent, do not assume they passed. A historical effect may \
 still be discussed, but unresolved methodology must reduce Research Evidence Confidence.
 
@@ -540,8 +545,10 @@ Only use the direction explicitly demonstrated by the underlying research.
 
 A candidate may only be recommended when the DATA contains concrete instrument-level \
 evidence. For BEST SUPPORTED, require either at least two materially distinct pieces of \
-instrument-level evidence, or one strong instrument-level signal plus validated \
-sector/research evidence. Do not classify a ticker as BEST SUPPORTED solely because it \
+instrument-level evidence, or one strong instrument-level signal plus historically \
+supported sector/research evidence that meets the supplied minimum validation criteria — \
+never describe research evidence as "validated" when its supplied research_edge_status is \
+WEAK or MODERATE. Do not classify a ticker as BEST SUPPORTED solely because it \
 belongs to the highest-ranked sector, is above its 200 SMA, is well known, appears in \
 news, or is considered "high quality." Prefer 1-3 strong candidates over a broad list. \
 Maximum recommended candidates: 3 unless the DATA clearly justifies more.
@@ -642,6 +649,20 @@ signal active means there is nothing to act on right now regardless of how good 
 historical research is. State all three explicitly when discussing the Phase 4/5 sector \
 research; never infer activation or strength from the research status alone, and never \
 infer research credibility from how strong today's signal looks.
+
+---
+## 43. PRIMARY VS. SECONDARY DRIVER (Phase 5 interaction finding)
+
+When the supplied research indicates the volatility x momentum interaction term is SMALL \
+relative to the volatility main effect (see the research_hypothesis field, if supplied), do \
+NOT describe the high-volatility/down-momentum combination as though the combination itself \
+is the primary validated edge. Describe volatility as the primary empirical driver and \
+negative momentum as a secondary conditioning variable, not a co-equal partner in the \
+pattern. Concretely: "semiconductors are in the historically strongest high-vol/down-\
+momentum bucket" OVERSTATES momentum's role if the supplied research says the effect is \
+mostly driven by volatility alone — prefer "semiconductors show high realized volatility, \
+the primary driver in this research; negative momentum here is a secondary, modest \
+distinction, not the main basis for the finding."
 """
 
 
@@ -909,9 +930,15 @@ def generate(refresh: bool = False) -> str:
     except Exception:
         _phase4 = {}
     _dev_spread = (_phase4.get("sector_rotation_backtest", {}).get("volatility_only_top1", {}).get("spread", {}))
+    _dev_costs = (_phase4.get("sector_rotation_backtest", {}).get("volatility_only_top1", {}).get("cost_adjusted_top_leg_return", {}))
     _holdout_spread = (_phase4.get("golden_holdout", {}).get("holdout_result", {}))
     if _dev_spread or _holdout_spread:
-        lines.append("\n**estimated_excess_return_20d (structured, not prose — long top-1 sector by volatility vs. equal-weight sector benchmark)**")
+        # Three DIFFERENT estimands, named precisely so they are never read as
+        # three measurements of the same quantity: (1) excess return of the top
+        # sector OVER the equal-weight benchmark, (2) the top sector's own GROSS
+        # return with no benchmark subtracted, (3) that gross return after an
+        # EXPLICIT, itemized transaction-cost model.
+        lines.append("\n**top_sector_vs_equal_weight_benchmark_20d** (excess return estimand — structured, not prose)")
         lines += _kv_table(
             [
                 ("value_dev_period", f"{_fmt(_dev_spread.get('mean_top_minus_bench_pct'))}pp"),
@@ -923,16 +950,54 @@ def generate(refresh: bool = False) -> str:
                 ("status", "VERIFIED — reproducible from logged experiment data" if _dev_spread else "UNAVAILABLE"),
             ]
         )
+        if _dev_spread:
+            lines.append("\n**gross_top_sector_return_20d** (a DIFFERENT estimand from the excess-return figure above — no benchmark subtracted)")
+            lines += _kv_table([("value_dev_period", f"{_fmt(_dev_spread.get('mean_top_return_pct'))}%"), ("source", "storage/models/phase4_report.json, same backtest run")])
+        if _dev_costs:
+            lines.append(
+                "\n**transaction_cost_model** (explicit, itemized — this is WHY gross->net is a 50bps reduction on a "
+                "\"25bps\" cost assumption, not 25bps: the backtest charges cost on BOTH sides of each rebalance)"
+            )
+            lines += _kv_table(
+                [
+                    ("cost_per_side_bps", 25),
+                    ("n_sides_per_rebalance", 2),
+                    ("sides_explanation", "closing the previous period's position + opening the new period's position, each at 25bps"),
+                    ("total_cost_bps", 50),
+                    ("gross_top_sector_return_20d_dev", f"{_fmt(_dev_spread.get('mean_top_return_pct'))}%"),
+                    ("net_top_sector_return_20d_dev_after_50bps", f"{_fmt(_dev_costs.get('25bps'))}%"),
+                ]
+            )
         lines.append(
-            "\n*n_dates in both periods counts overlapping 5-day-stride rebalance dates, not independent "
-            "trials — read std/sharpe_like as descriptive, not a rigorous significance test.*"
+            "\n*Do not compare top_sector_vs_equal_weight_benchmark_20d, gross_top_sector_return_20d, and any "
+            "decile-spread or other effect-size figure mentioned elsewhere as though they measure the same "
+            "quantity — each is a different estimand (excess-vs-benchmark vs. gross-vs-nothing vs. top-decile-"
+            "minus-bottom-decile, etc.), not repeated measurements of one number. n_dates in both periods "
+            "counts overlapping 5-day-stride rebalance dates, not independent trials — read std/sharpe_like "
+            "as descriptive, not a rigorous significance test.*"
         )
 
     try:
         _phase5 = json.loads((_PHASE5_REPORT_PATH).read_text())
         _survival = _phase5.get("edge_survival_score", {})
+        _decomp = _phase5.get("interaction_decomposition", {})
     except Exception:
-        _survival = {}
+        _survival, _decomp = {}, {}
+
+    if _decomp:
+        lines.append("\n**research_hypothesis** (what the research actually indicates is driving the effect — see Rule 43)")
+        lines += _kv_table(
+            [
+                ("primary_driver", "HIGH_REALIZED_VOLATILITY"),
+                ("secondary_condition", "NEGATIVE_MOMENTUM"),
+                ("coef_volatility", _decomp.get("coef_volatility")),
+                ("coef_momentum", _decomp.get("coef_momentum")),
+                ("coef_interaction", _decomp.get("coef_interaction")),
+                ("interaction_strength", "SMALL" if abs(_decomp.get("coef_interaction", 0)) < abs(_decomp.get("coef_volatility", 1)) * 0.3 else "MEANINGFUL"),
+                ("source", "storage/models/phase5_report.json:interaction_decomposition"),
+            ]
+        )
+
     if _survival:
         lines.append("\n**research_edge_status (historical validation — machine-computed, see Rule 30)**")
         for check_name, check in _survival.get("checks", {}).items():
@@ -990,7 +1055,12 @@ def generate(refresh: bool = False) -> str:
         lines += _kv_table(
             [
                 ("current_signal_active", activation),
+                ("activation_rule", "vol_bucket == high_vol (>= 50th percentile of realized_vol_20d among the 13 sectors) AND momentum_bucket == down (20D return < 0)"),
                 ("current_signal_strength", strength),
+                ("strength_rule_STRONG", "vol_percentile >= 85th AND 20D momentum <= -5%"),
+                ("strength_rule_MODERATE", "activation rule met, but STRONG thresholds not both met"),
+                ("strength_rule_WEAK", "vol_percentile below 60th (a marginal activation-rule pass)"),
+                ("strength_rule_N/A", "current_signal_active is NO"),
                 ("reason", strength_reason),
             ]
         )
