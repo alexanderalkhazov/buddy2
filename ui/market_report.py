@@ -205,10 +205,12 @@ sensational headline dominate the entire market conclusion.
 ---
 ## 10. PHASE 4 SECTOR RESEARCH
 
-The Phase 4 sector research is the strongest historically validated research signal \
-currently available in this system — but it is NOT a guaranteed edge and must not be \
-described as proven or production-grade. The reported finding is approximately ~1-2% \
-excess return per 20D holding period under the stated research methodology — a historical \
+The Phase 4 sector research is the strongest empirical pattern identified in this \
+project's Phase 1-4 research that remained positive in the reported out-of-sample, \
+sector-neutral, adversarial, and transaction-cost tests. Because the historical universe \
+has survivorship bias, treat this as preliminary empirical evidence rather than a fully \
+validated production trading edge. The reported finding is approximately ~1-2% excess \
+return per 20D holding period under the stated research methodology — a historical \
 tendency, not a forecast. The high-volatility/negative-momentum bucket is "the \
 historically strongest bucket found in this research," NOT "the sector most likely to \
 rise," "a guaranteed winner," "a buy signal," or "a proven alpha source."
@@ -278,8 +280,10 @@ Do not convert UNKNOWN into either positive or negative evidence.
 Absence of a validated positive signal is not automatically a validated negative signal — \
 e.g. "the Phase 4 sector edge is not currently present" is a neutral/no-signal statement, \
 not evidence FOR taking a bearish or defensive stance. Do not let a missing or non-firing \
-signal quietly slide into the Evidence Against column; it belongs in Unknown/Unreliable or \
-simply omitted, unless something SUPPLIED specifically argues the negative case.
+signal quietly slide into the Evidence Against column. It should be represented as NO \
+SIGNAL, or Unknown/Unreliable only when the underlying data itself is unavailable or \
+unreliable — those are two different things: a signal that was checked and didn't fire is \
+NO SIGNAL, a signal that couldn't be checked at all is Unknown/Unreliable.
 
 ---
 ## 17. CONFIDENCE
@@ -293,6 +297,11 @@ limitations/conflicts remain. LOW when evidence is mixed, important inputs are \
 stale/missing, evidence relies heavily on qualitative interpretation, candidate evidence is \
 weak, or the conclusion depends significantly on unvalidated research. Never use HIGH \
 merely because many indicators exist.
+
+HIGH confidence is PROHIBITED when any major decision-relevant input is materially stale, \
+UNKNOWN, or timestamp-mismatched, even if all remaining indicators agree — e.g. VIX term \
+structure reading UNKNOWN caps overall confidence below HIGH regardless of how coherent \
+everything else looks.
 
 ---
 ## 18. UNCERTAINTY BUDGET
@@ -346,6 +355,9 @@ changes."
 
 Rank surviving candidates as BEST SUPPORTED / SECONDARY / WATCH ONLY, reflecting evidence \
 quality and alignment — never arbitrary numerical probabilities or personal preference.
+
+Recommend no more than 3 candidates total unless the supplied evidence clearly justifies \
+more. Prefer a smaller set of stronger candidates over a broad watchlist.
 
 ---
 ## 24. OUTPUT FORMAT
@@ -651,9 +663,11 @@ def generate(refresh: bool = False) -> str:
     # ---- Sector Opportunity Ranking ---------------------------------------
     lines.append("\n## Sector Opportunity Ranking")
     lines.append(
-        "Ranked by 20D realized volatility — the ONE signal across this project's Phase 1-4 research "
-        "that survived broad-universe, sector-neutral, adversarial, and out-of-sample testing (see "
-        "storage/models/phase4_report.json). Historically: the single HIGHEST-volatility sector, "
+        "Ranked by 20D realized volatility — the strongest empirical pattern identified in this "
+        "project's Phase 1-4 research that remained positive across broad-universe, sector-neutral, "
+        "adversarial, and out-of-sample testing (see storage/models/phase4_report.json). Because the "
+        "historical universe has survivorship bias, treat this as preliminary empirical evidence, not "
+        "a fully validated production edge. Historically: the single HIGHEST-volatility sector, "
         "especially when its own 20D momentum is NEGATIVE (a stressed/sold-off sector, not a rallying "
         "one), showed the strongest subsequent 20D returns in walk-forward testing — not a guarantee, "
         "an out-of-sample-tested tendency with a modest, cost-surviving effect size (~1-2% excess vs. "
