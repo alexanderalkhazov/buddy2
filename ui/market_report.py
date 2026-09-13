@@ -848,13 +848,106 @@ def _market_news_digest(refresh: bool = False) -> list[dict]:
     return sorted(deduped, key=_sort_key, reverse=True)[:20]
 
 
+def _ranked_predictions(refresh: bool = False, top_n: int = 10) -> dict:
+    """Direct, deterministic LONG and SHORT ticker rankings across ALL 13
+    sectors' member tickers (~104 names) — no LLM, no interpretation step.
+    composite score = the ticker's sector-level calibrated P(top-3) from
+    rocket_science, nudged by the ticker's OWN trend/RSI alignment. Risk
+    management (stops, sizing, entry timing) is deliberately NOT included
+    here — this is a ranked watchlist, not a trade plan. Use `report TICKER`
+    for actual trade levels on anything that comes out of this list."""
+    from processing.ml.rocket_science import predict_next_move
+
+    rocket = predict_next_move(refresh=refresh)
+    sector_prob = {p["sector"]: p.get("p_top3_ensemble", 0.0) for p in rocket.get("predictions_all_13_sectors", []) if "error" not in p}
+    reliability = rocket.get("model_oos_reliability", {})
+
+    rows = []
+    for sector, tickers in EXPANDED_UNIVERSE_V2.items():
+        p_top3 = sector_prob.get(sector)
+        if p_top3 is None:
+            continue
+        for ticker in tickers:
+            try:
+                s = price_snapshot(ticker, get_ohlcv(ticker, force=refresh))
+            except Exception:
+                continue
+            trend_bonus = 0.05 if s.trend == "above_all_smas" else (-0.05 if s.trend == "below_all_smas" else 0.0)
+            rsi_long_bonus = 0.02 if (s.rsi14 is not None and 50 <= s.rsi14 <= 70) else 0.0
+            rsi_short_bonus = 0.02 if (s.rsi14 is not None and s.rsi14 <= 40) else 0.0
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "sector": sector,
+                    "p_top3_sector": round(p_top3, 4),
+                    "last": s.last,
+                    "change_pct": s.change_pct,
+                    "rsi14": s.rsi14,
+                    "trend": s.trend,
+                    "long_score": round(p_top3 + trend_bonus + rsi_long_bonus, 4),
+                    "short_score": round((1 - p_top3) - trend_bonus + rsi_short_bonus, 4),
+                }
+            )
+
+    long_ranked = sorted(rows, key=lambda r: r["long_score"], reverse=True)[:top_n]
+    short_ranked = sorted(rows, key=lambda r: r["short_score"], reverse=True)[:top_n]
+    return {"long": long_ranked, "short": short_ranked, "reliability": reliability, "n_tickers_scored": len(rows)}
+
+
 def generate(refresh: bool = False) -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines: list[str] = []
 
     lines.append(f"# Market Condition Report — generated {now}")
-    lines.append(SYSTEM_BLOCK)
-    lines.append("\n---\n# DATA")
+    lines.append(
+        "\nDirect, deterministic predictions below — no LLM interpretation step. Every number is "
+        "fetched or computed by code. Risk management (stops, position sizing, entry timing) is "
+        "intentionally NOT included here — this ranks candidates, it does not size or time a trade. "
+        "Run `python main.py report TICKER` on anything below for actual entry/stop/target levels."
+    )
+
+    try:
+        _pred = _ranked_predictions(refresh=refresh)
+    except Exception as exc:
+        _pred = {"error": str(exc)[:300]}
+
+    if _pred.get("error"):
+        lines.append(f"\n**Predictions unavailable this run:** {_pred['error']}")
+    else:
+        _rel = _pred.get("reliability", {})
+        lines.append(
+            f"\n**Model reliability** (measured OOS, not assumed): AUC {_fmt(_rel.get('mean_oos_auc'))}, "
+            f"Brier {_fmt(_rel.get('mean_oos_brier'))} vs. coin-flip baseline {_fmt(_rel.get('coin_flip_brier_baseline'))} "
+            f"— status **{_rel.get('status', 'n/a')}**. Ranked across {_pred.get('n_tickers_scored', 0)} tickers, all 13 US equity sectors."
+        )
+
+        lines.append("\n## TOP LONG CANDIDATES")
+        lines.append("| # | Ticker | Sector | P(sector top-3) | Last | Change % | RSI14 | Trend | Long Score |")
+        lines.append("|---|---|---|---|---|---|---|---|---|")
+        for i, r in enumerate(_pred["long"], 1):
+            lines.append(
+                f"| {i} | {r['ticker']} | {r['sector'].replace('_', ' ').title()} | {_fmt(r['p_top3_sector'])} | "
+                f"{_fmt(r['last'])} | {_fmt(r['change_pct'])}% | {_fmt(r['rsi14'])} | {r['trend']} | {_fmt(r['long_score'])} |"
+            )
+
+        lines.append("\n## TOP SHORT CANDIDATES")
+        lines.append("| # | Ticker | Sector | P(sector top-3) | Last | Change % | RSI14 | Trend | Short Score |")
+        lines.append("|---|---|---|---|---|---|---|---|---|")
+        for i, r in enumerate(_pred["short"], 1):
+            lines.append(
+                f"| {i} | {r['ticker']} | {r['sector'].replace('_', ' ').title()} | {_fmt(r['p_top3_sector'])} | "
+                f"{_fmt(r['last'])} | {_fmt(r['change_pct'])}% | {_fmt(r['rsi14'])} | {r['trend']} | {_fmt(r['short_score'])} |"
+            )
+
+        lines.append(
+            "\n*long_score = sector's calibrated P(top-3-of-13 by 20D return) + a small bonus for the "
+            "ticker's own bullish trend/RSI alignment. short_score mirrors this on the bearish side. "
+            "These are RANKINGS, not probabilities of profit — the underlying model's measured edge is "
+            f"modest (see Model reliability above). No stop-loss, position size, or entry timing is "
+            "computed here by design; that is `report TICKER`'s job."
+        )
+
+    lines.append("\n---\n# SUPPORTING DATA")
 
     # ---- Market Regime -------------------------------------------------
     lines.append("\n## Market Regime")
@@ -1334,11 +1427,9 @@ def generate(refresh: bool = False) -> str:
         ]
     )
     lines.append(
-        "\n---\nNow respond using the exact structure specified in Rule 39 (Final Output) of "
-        "the prompt above — Rule 39 supersedes Section 24 — (Market Read / Evidence For / "
-        "Evidence Against / Sector Focus / Recommended Candidates / Decision / Decision basis "
-        "/ Confidence [Data Quality / Research Evidence / Decision / per-asset-class] / What "
-        "Would Change My Mind / Uncertainty Budget / Next Step)."
+        "\n---\n*End of report. TOP LONG CANDIDATES and TOP SHORT CANDIDATES at the top are the direct "
+        "output of this run; everything below them is supporting detail for anyone who wants to check the "
+        "underlying data. No interpretation step is required or expected.*"
     )
 
     return "\n".join(lines)

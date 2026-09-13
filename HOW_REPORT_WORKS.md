@@ -11,8 +11,11 @@ python main.py report AAPL         # per-ticker report
 
 Both are **zero-LLM**: every number is either fetched from a real API or
 computed by a deterministic formula in `processing/`. No AI writes any of the
-data. The output is a large Markdown text block meant to be pasted into a
-chatbot (or read directly) for interpretation.
+data, and no AI-interpretation step is required to use either report — the
+market-wide report leads with a direct, ranked LONG/SHORT candidate list
+computed by code (Part A1 below); the per-ticker report still opens with a
+prompt for whoever wants an LLM's narrative read on the fuller data package
+(Part B4), but that step is optional, not required to get a usable answer.
 
 ---
 
@@ -36,35 +39,33 @@ chatbot (or read directly) for interpretation.
 
 Source: `ui/market_report.py:generate()`.
 
-### A1. Build the analyst prompt (`SYSTEM_BLOCK`)
+### A1. TOP LONG CANDIDATES / TOP SHORT CANDIDATES — the direct output
 
-The report **opens**, not closes, with a long, structured prompt — over 50
-numbered rules — instructing an AI how to reason over the data that follows.
-This is written once as a module-level constant and is identical on every
-run; only the DATA below it changes. Key things it establishes before any
-data appears:
+As of this version, the report leads with a **direct, deterministic
+ranking** — no LLM interpretation step, no analyst prompt. `_ranked_predictions()`
+scores all ~104 tickers across all 13 US equity sectors:
 
-- The goal is **TRADE / WAIT / NO TRADE** (never a raw buy/sell call), where
-  TRADE explicitly means *"proceed to ticker-specific validation"*, not
-  *"enter a position."*
-- A **4-tier evidence hierarchy**: current market data > historical research
-  > news/prediction markets > the AI's own reasoning. Lower tiers can never
-  silently override higher ones.
-- A **data-quality gate**: check freshness/timestamp-alignment/consistency
-  *before* interpreting anything; UNKNOWN must stay UNKNOWN, never be
-  guessed.
-- **No directional market prediction** is allowed — this system's own ML
-  research (see Part C) found no such edge (AUC ≈ 0.50), and the prompt says
-  so explicitly.
-- Three separate confidence dimensions (**Data Quality / Research Evidence /
-  Decision** confidence) instead of one blended score.
-- An **Evidence State Matrix** mapping `research_edge_status ×
-  current_signal_active × current_signal_strength` to a fixed
-  interpretation, so the AI can't invent a rosier reading than the data
-  supports.
-- A long list of absolute prohibitions: never invent a statistic, never call
-  lagged data "current," never treat a Polymarket price as an objective
-  probability, never provide entry/stop/target sizing (that's Part B's job).
+1. Pull each sector's calibrated `P(top-3-of-13)` from `rocket_science`
+   (Part A7 below).
+2. For every member ticker of every sector, take a live technical snapshot
+   (trend vs. SMAs, RSI14, change%).
+3. `long_score` = the ticker's sector probability + a small bonus if the
+   ticker itself is trending bullish (`above_all_smas`) and RSI is in a
+   healthy 50-70 range. `short_score` mirrors this on the bearish side
+   (`below_all_smas`, RSI ≤ 40, using `1 - sector probability` as the base).
+4. The top 10 by each score are printed as **TOP LONG CANDIDATES** and
+   **TOP SHORT CANDIDATES** tables, immediately after the model's own
+   measured OOS reliability (AUC/Brier vs. a coin-flip baseline).
+
+**Risk management is deliberately excluded from this section** — no
+stop-loss, position size, or entry timing. This is a ranked watchlist, not
+a trade plan; `report TICKER` is where actual trade levels come from (Part
+B, below).
+
+The rest of the report (Parts A2-A9) follows below as **supporting data** —
+the same regime/macro/sector detail as before, kept for anyone who wants to
+verify what's behind the rankings, but no longer built around an AI-prompt
+framing.
 
 ### A2. Market Regime
 
@@ -202,14 +203,14 @@ a low P(top-3) is the model's least-favored output, not a positively-tested
 "will underperform" signal. It compounds two unvalidated-for-this-purpose
 signals (sector rank + individual technicals) and says so.
 
-### A9. Reliability & Limitations + closing instruction
+### A9. Reliability & Limitations + closing note
 
-A final table restates the hard limits (no directional prediction, sample-
-only news, survivorship-biased universe, no point-in-time fundamentals) and
-the report ends by pointing the AI back at the exact output structure
-specified in the prompt (Market Read → Evidence For/Against → Sector Focus →
-Recommended Candidates → Decision + Decision basis + Decision scope →
-Confidence → What Would Change My Mind → Uncertainty Budget → Next Step).
+A final table restates the hard limits (no whole-market directional
+prediction, sample-only news, survivorship-biased universe, no point-in-time
+fundamentals), and the report closes with a one-line note that TOP LONG/
+SHORT CANDIDATES at the top are the actual output of the run and everything
+below them is supporting detail — no further interpretation step is
+expected.
 
 ---
 
