@@ -138,10 +138,11 @@ research (`processing/ml/`, Phases 1-5), not just a live data pull:
 4. `research_edge_status` — a machine-computed checklist
    (`storage/models/phase5_report.json`), each check carrying a `PASS` /
    `WEAK` / `NOT_TESTED` status **and a reason**, some marked `[CRITICAL]`.
-   The overall status is capped by the *weakest critical check*, not
-   averaged — currently **WEAK**, because `sector_neutral`,
-   `non_overlapping_forward_return_test`, and `point_in_time_universe` all
-   sit below PASS.
+   The overall status is capped by the *weakest critical check(s)*, not
+   averaged — currently **MODERATE** (up from WEAK once
+   `non_overlapping_forward_return_test` was actually built and passed —
+   see `processing/ml/non_overlapping_test.py`), because `sector_neutral`
+   and `point_in_time_universe` still sit below PASS.
 5. `current_signal_activation` — computed fresh from the **live** sector
    snapshot (separate from the historical `research_edge_status` above):
    `current_signal_active` (YES/NO) and `current_signal_strength`
@@ -154,14 +155,44 @@ research (`processing/ml/`, Phases 1-5), not just a live data pull:
 
 ### A6. Sector Leaders, Indices, Crypto
 
-- **Sector Leaders**: the actual member tickers of the top 3 ranked sectors,
-  each with a live price/change%/RSI/trend snapshot — concrete named
-  candidates, not just a sector label.
+- **Sector Leaders**: the actual member tickers of the top 5 ranked sectors
+  (kept above 3 so the report visibly spans multiple industries, not just
+  whichever single sector is most volatile that week), each with a live
+  price/change%/RSI/trend snapshot — concrete named candidates, not just a
+  sector label.
 - **Indices Snapshot**: S&P 500, Nasdaq, Dow, Russell 2000.
 - **Crypto Snapshot**: BTC/ETH/SOL — explicitly flagged as outside this
   project's backtested research (raw price/trend only).
 
-### A7. Reliability & Limitations + closing instruction
+### A7. Next Market Move — the `rocket_science` model
+
+The most sophisticated model in this project (`processing/ml/rocket_science.py`),
+built **on top of**, not instead of, everything Phases 1-5 established. It
+predicts, for **all 13 sectors** spanning the full US equity map (technology,
+semiconductors, software/internet, financials, healthcare, industrials,
+energy, consumer discretionary/staples, utilities, materials, communication
+services, real estate — never just semiconductors), a **calibrated
+probability** of landing in the top-3-of-13 by 20-trading-day forward
+return:
+
+- A gradient-boosting + logistic-regression calibrated ensemble, trained on
+  the same sector features plus explicit interaction terms (volatility ×
+  momentum, breadth × volatility, cross-sectional vol/momentum rank) —
+  genuinely more sophisticated math than Phase 4's rule-based ranking.
+- Evaluated with the same purged, embargoed, walk-forward discipline as
+  every other phase — never trained-then-reported in-sample.
+- The report shows the model's own measured OOS reliability (`mean_oos_auc`,
+  `mean_oos_brier` vs. a coin-flip baseline, and a `PASS`/`NO_DEMONSTRATED_EDGE`
+  status) directly alongside the 13-sector probability table, and is
+  explicitly labeled an **experimental extension** — it has not yet been
+  through the sector-neutral/adversarial/non-overlapping/point-in-time-
+  universe stress tests that the core Phase 4/5 finding has.
+- This is *not* a claim that the market will rise or fall. It is the honest
+  ceiling of what this system's research supports predicting: which sectors,
+  among all 13, look relatively more likely to lead over the next 20 trading
+  days.
+
+### A8. Reliability & Limitations + closing instruction
 
 A final table restates the hard limits (no directional prediction, sample-
 only news, survivorship-biased universe, no point-in-time fundamentals) and
