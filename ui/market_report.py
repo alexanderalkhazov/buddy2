@@ -754,11 +754,11 @@ different interpretation than the matching row below:
 | MODERATE/WEAK | YES | MODERATE/WEAK | a preliminary, weakly-supported setup on both axes |
 | MODERATE/WEAK | NO | N/A | no actionable research support right now |
 
-The system's current actual state (research_edge_status=WEAK, current_signal_active=YES, \
-current_signal_strength=MODERATE) falls in the "MODERATE/WEAK + YES + MODERATE/WEAK" row: \
-an interesting current setup riding on weak historical validation, not a validated \
-opportunity. State this plainly rather than letting the ACTIVE/MODERATE fields alone read \
-as more encouraging than the underlying WEAK research status supports.
+Look up the ACTUAL research_edge_status, current_signal_active, and current_signal_strength \
+values from DATA below (not from any example elsewhere in this prompt — those values change \
+as research is updated) and find the matching row above. State that row's interpretation \
+plainly rather than letting an ACTIVE/MODERATE-or-STRONG current signal alone read as more \
+encouraging than the underlying research_edge_status actually supports.
 """
 
 

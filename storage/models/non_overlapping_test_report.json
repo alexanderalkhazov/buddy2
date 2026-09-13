@@ -1,0 +1,24 @@
+{
+  "horizon_days": 20,
+  "n_total_observations": 546,
+  "n_sectors": 13,
+  "per_sector_observation_counts": {
+    "communication_services": 42,
+    "consumer_discretionary": 42,
+    "consumer_staples": 42,
+    "energy": 42,
+    "financials": 42,
+    "healthcare": 42,
+    "industrials": 42,
+    "materials": 42,
+    "real_estate": 42,
+    "semiconductors": 42,
+    "software_internet": 42,
+    "technology": 42,
+    "utilities": 42
+  },
+  "ic": 0.1945,
+  "high_vol_down_bucket_effect": 1.038,
+  "status": "PASS",
+  "note": "TRUE non-overlapping test: observations are spaced exactly `horizon_days` trading days apart per sector, so no two observations for the same sector share a single day in their forward-return window (unlike the Phase 1-4 stride-5 dataset, where consecutive 20D-labeled observations share 15 of 20 days). Sample size is necessarily small (13 sectors x ~4y of non-overlapping 20-day windows) \u2014 a real, disclosed limitation of this stricter test, not a bug. This is the test previously logged as NOT_TESTED in phase5_edge_stress_test.py."
+}
