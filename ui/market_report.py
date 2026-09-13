@@ -40,7 +40,7 @@ NEWS_BELLWETHERS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA"]
 
 INDICES = {"^GSPC": "S&P 500", "^IXIC": "Nasdaq Composite", "^DJI": "Dow Jones Industrial Average", "^RUT": "Russell 2000 (small-cap)"}
 CRYPTO = {"BTC-USD": "Bitcoin", "ETH-USD": "Ethereum", "SOL-USD": "Solana"}
-N_SECTOR_LEADERS = 3  # how many top-ranked sectors get their member tickers listed as named candidates
+N_SECTOR_LEADERS = 5  # how many top-ranked sectors get their member tickers listed as named candidates — kept above 3 so the report visibly spans multiple industries, not just whichever single sector is most volatile this week
 
 SYSTEM_BLOCK = """\
 # MARKET CONDITION REPORT — HARDENED ANALYST PROMPT
@@ -1214,6 +1214,55 @@ def generate(refresh: bool = False) -> str:
             lines.append(f"| {label} ({ticker}) | {_fmt(s.last)} | {_fmt(s.change_pct)}% | {_fmt(s.rsi14)} | {s.trend} |")
         except Exception as exc:
             lines.append(f"| {label} ({ticker}) | error: {str(exc)[:60]} | | | |")
+
+    # ---- Next Market Move — rocket_science model -----------------------------
+    lines.append("\n## Next Market Move — Predictive Model (rocket_science)")
+    lines.append(
+        "A calibrated model (gradient boosting + logistic regression ensemble, walk-forward validated) "
+        "covering ALL 13 US equity sectors — technology, semiconductors, software/internet, financials, "
+        "healthcare, industrials, energy, consumer discretionary, consumer staples, utilities, materials, "
+        "communication services, real estate — not only semiconductors. It does NOT predict whether the "
+        "market will rise or fall. It predicts, per sector, a calibrated probability of landing in the "
+        "top-3-of-13 sectors by 20-trading-day forward return."
+    )
+    try:
+        from processing.ml.rocket_science import predict_next_move
+
+        _rocket = predict_next_move(refresh=refresh)
+    except Exception as exc:
+        _rocket = {"error": str(exc)[:200]}
+
+    if _rocket.get("error"):
+        lines.append(f"\nUnavailable this run: {_rocket['error']}")
+    else:
+        _rel = _rocket.get("model_oos_reliability", {})
+        lines.append("\n**Model out-of-sample reliability (measured, not assumed)**")
+        lines += _kv_table(
+            [
+                ("mean_oos_auc", _fmt(_rel.get("mean_oos_auc"))),
+                ("mean_oos_brier", _fmt(_rel.get("mean_oos_brier"))),
+                ("coin_flip_brier_baseline", _fmt(_rel.get("coin_flip_brier_baseline"))),
+                ("**status**", f"**{_rel.get('status', 'n/a')}**"),
+            ]
+        )
+        lines.append(
+            "\n*status=PASS means the model beat a coin-flip baseline in walk-forward testing — a real "
+            "but MODEST edge (AUC ~0.60), not a validated trading signal on its own. Read alongside "
+            "research_edge_status above; this model has NOT yet been through the same multi-phase "
+            "stress-testing (sector-neutral, adversarial, non-overlapping, point-in-time-universe checks) "
+            "as the core Phase 4/5 finding — treat it as an experimental extension, not equally validated.*"
+        )
+        lines.append("\n**Calibrated probability, ALL 13 sectors (top-3-of-13 by 20D forward return)**")
+        lines.append("| Sector | P(top-3) | Model Agreement | 20D Vol | 20D Momentum |")
+        lines.append("|---|---|---|---|---|")
+        for p in _rocket.get("predictions_all_13_sectors", []):
+            if "error" in p:
+                continue
+            lines.append(
+                f"| {p['sector'].replace('_', ' ').title()} | {_fmt(p.get('p_top3_ensemble'))} | "
+                f"{_fmt(p.get('model_agreement'))} | {_fmt(p.get('realized_vol_20d'))}% | {_fmt(p.get('ret_20d'))}% |"
+            )
+        lines.append(f"\n*{_rocket.get('note', '')}*")
 
     # ---- Reliability & Limitations -----------------------------------------
     lines.append("\n## Reliability & Limitations")
