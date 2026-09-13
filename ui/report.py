@@ -666,9 +666,10 @@ def generate(
         elif mc and "error" in mc:
             lines.append(f"\n### Monte Carlo Bootstrap\n{mc['error']}")
 
-    tl = scoring.trade_levels(price["last"], price["atr14"], as_of=fresh["as_of"], next_earnings_date=fund.get("next_earnings_date"))
+    tl = scoring.trade_levels(price["last"], price["atr14"], as_of=fresh["as_of"], next_earnings_date=fund.get("next_earnings_date"), direction="long")
     if "error" not in tl:
-        lines.append("\n## Trade Levels — hypothetical LONG entry, stop, and take-profit (not a recommendation to enter)")
+        lines.append("\n## Trade Levels — LONG and SHORT (hypothetical, not a recommendation to enter either)")
+        lines.append("\n### Long Setup")
         ep = tl.get("earnings_proximity", {})
         if ep.get("severity") in ("IMMEDIATE", "ELEVATED"):
             lines.append(
@@ -691,6 +692,36 @@ def generate(
         )
         lines.append(f"\n**Invalidation:** {tl['invalidation']}")
         lines.append(f"\n*{tl['note']}*")
+
+        ts = scoring.trade_levels(price["last"], price["atr14"], as_of=fresh["as_of"], next_earnings_date=fund.get("next_earnings_date"), direction="short")
+        if "error" not in ts:
+            lines.append("\n### Short Setup")
+            eps = ts.get("earnings_proximity", {})
+            if eps.get("severity") in ("IMMEDIATE", "ELEVATED"):
+                lines.append(
+                    f"\n> ⚠️ **{eps['severity']} EARNINGS RISK** — a short is MORE exposed to an earnings gap "
+                    "than a long (an unexpected beat can gap the stock up with no fill available at the stop). "
+                    f"Next earnings {eps.get('next_earnings_date')} ({eps.get('calendar_days_until_earnings')} calendar day(s))."
+                )
+            lines += _kv_table(
+                [
+                    ("Entry (latest close)", _fmt(ts["entry"])),
+                    ("Stop", _fmt(ts["stop"])),
+                    ("Risk per share", _fmt(ts["risk_per_share"])),
+                    (f"Take-profit 1 ({ts['take_profit_1_r_multiple']}R)", _fmt(ts["take_profit_1"])),
+                    (f"Take-profit 2 ({ts['take_profit_2_r_multiple']}R)", _fmt(ts["take_profit_2"])),
+                    ("Risk/reward to TP1", f"{ts['risk_reward_ratio_tp1']}:1"),
+                ]
+            )
+            lines.append(f"\n**Invalidation:** {ts['invalidation']}")
+            lines.append(f"\n⚠️ *{ts.get('short_specific_costs_not_modeled', '')}*")
+            lines.append(
+                "\n*Neither the Long nor Short setup above is a directional call — this system's ML research "
+                "found no demonstrated edge in individual-stock direction (see ML Prediction Engine below), "
+                "so the presence of a Short Setup here is NOT evidence that shorting this ticker is a good "
+                "idea, any more than the Long Setup is evidence for going long. Both are the same symmetric "
+                "ATR arithmetic, computed for whichever direction you've independently decided to consider.*"
+            )
 
     if account_size:
         entry = price["last"]

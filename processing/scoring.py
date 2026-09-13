@@ -234,28 +234,41 @@ def trade_levels(
     tp2_r_multiple: float = 3.0,
     as_of: str | None = None,
     next_earnings_date: str | None = None,
+    direction: str = "long",
 ) -> dict:
-    """Entry/stop/take-profit levels for a hypothetical LONG position, derived
-    purely from price and ATR — not a recommendation to take the trade, just the
-    deterministic arithmetic once you decide to. entry is the last available close
-    (this system has no live quote, see data_freshness); stop is the same
-    ATR-multiple stop as suggested_stop(); TP1/TP2 are R-multiples of the resulting
-    entry-to-stop distance (a common, but arbitrary, convention — 1.5R and 3R are
-    not fitted to this specific ticker's behavior). risk_reward_ratio compares TP1
-    to the stop distance. This function does not know direction is a good idea —
-    it only computes what the numbers would be IF a long entry were taken here."""
+    """Entry/stop/take-profit levels for a hypothetical LONG or SHORT position,
+    derived purely from price and ATR — not a recommendation to take the trade,
+    just the deterministic arithmetic once you decide to. entry is the last
+    available close (this system has no live quote, see data_freshness); stop
+    is the same ATR-multiple stop as suggested_stop() (below entry for long,
+    above entry for short); TP1/TP2 are R-multiples of the resulting
+    entry-to-stop distance (a common, but arbitrary, convention — 1.5R and 3R
+    are not fitted to this specific ticker's behavior). risk_reward_ratio
+    compares TP1 to the stop distance. This function does not know direction
+    is a good idea — it only computes what the numbers would be IF that
+    position were opened here. SHORT-specific costs (borrow fees, hard-to-
+    borrow/unavailability risk, dividend obligations while short, theoretically
+    unlimited loss vs. a long's floor at zero) are NOT modeled — flagged below,
+    not silently ignored."""
     if last_price is None or atr14 is None or atr14 <= 0:
         return {"error": "last_price and a positive atr14 are required"}
+    if direction not in ("long", "short"):
+        return {"error": f"direction must be 'long' or 'short', got {direction!r}"}
 
-    stop = round(last_price - stop_multiplier * atr14, 4)
-    risk_per_share = round(last_price - stop, 4)
+    sign = 1 if direction == "long" else -1
+    stop = round(last_price - sign * stop_multiplier * atr14, 4)
+    risk_per_share = round(sign * (last_price - stop), 4)
     if risk_per_share <= 0:
-        return {"error": "computed stop is not below last_price — cannot derive R-multiples"}
+        return {"error": "computed stop is on the wrong side of last_price — cannot derive R-multiples"}
 
-    tp1 = round(last_price + tp1_r_multiple * risk_per_share, 4)
-    tp2 = round(last_price + tp2_r_multiple * risk_per_share, 4)
+    tp1 = round(last_price + sign * tp1_r_multiple * risk_per_share, 4)
+    tp2 = round(last_price + sign * tp2_r_multiple * risk_per_share, 4)
+    # A long's stop sits BELOW entry (invalidated by a close below it); a
+    # short's stop sits ABOVE entry (invalidated by a close above it).
+    breach = "below" if direction == "long" else "above"
 
-    return {
+    out = {
+        "direction": direction.upper(),
         "entry": last_price,
         "stop": stop,
         "risk_per_share": risk_per_share,
@@ -264,7 +277,7 @@ def trade_levels(
         "take_profit_2": tp2,
         "take_profit_2_r_multiple": tp2_r_multiple,
         "risk_reward_ratio_tp1": tp1_r_multiple,  # by construction: TP1 is exactly tp1_r_multiple * risk
-        "invalidation": f"Daily close below {stop} invalidates this long setup (stop-loss level breached).",
+        "invalidation": f"Daily close {breach} {stop} invalidates this {direction} setup (stop-loss level breached).",
         # Does not alter entry/stop/TP1/TP2 above — a separate, additive warning
         # about execution risk around an earnings gap, not a recomputation.
         "earnings_proximity": earnings_proximity_risk(as_of, next_earnings_date),
@@ -273,12 +286,21 @@ def trade_levels(
             "there may be gap risk between this level and your actual fill. stop/TP1/TP2 "
             f"are {stop_multiplier}x/{tp1_r_multiple}R/{tp2_r_multiple}R ATR-based levels, a "
             "common but arbitrary convention, not calibrated to this specific ticker's "
-            "historical behavior around similar setups. This assumes a LONG position — "
-            "the system does not generate short-side levels. Whether to take this trade "
-            "at all is a separate question this function does not answer; it only "
-            "computes the arithmetic for a hypothetical long entry at the current level."
+            f"historical behavior around similar setups. This assumes a {direction.upper()} "
+            "position. Whether to take this trade at all is a separate question this "
+            "function does not answer; it only computes the arithmetic for a hypothetical "
+            f"{direction} entry at the current level."
         ),
     }
+    if direction == "short":
+        out["short_specific_costs_not_modeled"] = (
+            "Borrow fees, hard-to-borrow/unavailability risk, and dividend obligations while short are "
+            "NOT included in risk_per_share or the R-multiples above — actual short P&L is worse than "
+            "these numbers by whatever the broker charges to borrow the shares. Loss on a short is also "
+            "theoretically unbounded (price can rise without limit), unlike a long's floor at zero — the "
+            "stop above is a discipline level, not a guaranteed cap on loss if price gaps past it."
+        )
+    return out
 
 
 def suggested_stop(last_price: float | None, atr14: float | None, multiplier: float = 2.0) -> float | None:

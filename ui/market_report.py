@@ -759,6 +759,21 @@ values from DATA below (not from any example elsewhere in this prompt — those 
 as research is updated) and find the matching row above. State that row's interpretation \
 plainly rather than letting an ACTIVE/MODERATE-or-STRONG current signal alone read as more \
 encouraging than the underlying research_edge_status actually supports.
+
+---
+## 51. SHORT / UNDERPERFORMER CANDIDATES ARE LOWER-CONFIDENCE THAN LONG CANDIDATES
+
+The rocket_science model (Section on Next Market Move) was trained and validated ONLY to \
+predict TOP-3-of-13 sectors. Its lowest-probability sectors, shown under "Short / \
+Underperformer Candidates," are the model's least-favored outputs, NOT a separately \
+validated "will underperform" or "short-worthy" signal — do not describe them with the \
+same confidence as the top-ranked candidates. Any ticker shown there compounds two \
+unvalidated-for-this-purpose signals (sector underperformance rank + individual bearish \
+technicals) — treat these as the WEAKEST-confidence candidates in the whole report, and \
+explicitly say so if recommending one for further investigation. Never provide short-side \
+entry/stop/target sizing here — same as long candidates, that belongs only in `report \
+TICKER`'s Short Setup section, which also discloses short-specific costs (borrow fees, \
+unbounded loss risk, squeeze risk) this market-wide report does not model at all.
 """
 
 
@@ -1263,6 +1278,47 @@ def generate(refresh: bool = False) -> str:
                 f"{_fmt(p.get('model_agreement'))} | {_fmt(p.get('realized_vol_20d'))}% | {_fmt(p.get('ret_20d'))}% |"
             )
         lines.append(f"\n*{_rocket.get('note', '')}*")
+
+        # ---- Short / Underperformer Candidates -------------------------------
+        lines.append("\n## Short / Underperformer Candidates")
+        lines.append(
+            "IMPORTANT SCOPE NOTE: rocket_science was trained and evaluated to predict TOP-3-of-13 "
+            "sectors — it was never separately trained or validated as a bottom-predicting model. The "
+            "lowest P(top-3) sectors below are the model's LEAST-favored, not a positively validated "
+            "\"will underperform\" or \"short-worthy\" signal — treat this section as lower-confidence than "
+            "the Next Market Move table above, not equally validated."
+        )
+        preds = [p for p in _rocket.get("predictions_all_13_sectors", []) if "error" not in p]
+        bottom = sorted(preds, key=lambda p: p.get("p_top3_ensemble", 1))[:3]
+        if bottom:
+            lines.append("\n| Sector | P(top-3) (lowest = least favored) | 20D Vol | 20D Momentum |")
+            lines.append("|---|---|---|---|")
+            for p in bottom:
+                lines.append(f"| {p['sector'].replace('_', ' ').title()} | {_fmt(p.get('p_top3_ensemble'))} | {_fmt(p.get('realized_vol_20d'))}% | {_fmt(p.get('ret_20d'))}% |")
+
+            lines.append("\n**Candidate tickers within the least-favored sectors, with bearish technical readings**")
+            lines.append("| Ticker | Sector | Last | Change % | RSI14 | Trend |")
+            lines.append("|---|---|---|---|---|---|")
+            for p in bottom:
+                sector = p["sector"]
+                for ticker in EXPANDED_UNIVERSE_V2.get(sector, []):
+                    try:
+                        s = price_snapshot(ticker, get_ohlcv(ticker, force=refresh))
+                    except Exception:
+                        continue
+                    if s.trend in ("below_all_smas",) or (s.rsi14 is not None and s.rsi14 < 40):
+                        lines.append(f"| {ticker} | {sector.replace('_', ' ').title()} | {_fmt(s.last)} | {_fmt(s.change_pct)}% | {_fmt(s.rsi14)} | {s.trend} |")
+            lines.append(
+                "\n*Filtered to member tickers already showing bearish technicals (below all SMAs, or "
+                "RSI14 < 40) within the least-favored sectors — this compounds two unvalidated-for-this-"
+                "purpose signals (sector underperformance, individual technical weakness) rather than one, "
+                "so treat these as the WEAKEST-confidence candidates in this entire report. Shorting carries "
+                "asymmetric risk (theoretically unbounded loss, borrow costs, squeeze risk) not modeled "
+                "anywhere in this system — see the Short Setup section of `report TICKER` for the arithmetic "
+                "if you still want to examine one, and its explicit short-cost disclosure.*"
+            )
+        else:
+            lines.append("\nNo prediction data available this run.")
 
     # ---- Reliability & Limitations -----------------------------------------
     lines.append("\n## Reliability & Limitations")

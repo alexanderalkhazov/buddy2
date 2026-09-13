@@ -192,7 +192,17 @@ return:
   among all 13, look relatively more likely to lead over the next 20 trading
   days.
 
-### A8. Reliability & Limitations + closing instruction
+Directly below the 13-sector table, a **Short / Underperformer Candidates**
+section surfaces the 3 *lowest*-probability sectors and lists their member
+tickers already showing bearish technicals (below all SMAs, or RSI14 < 40).
+This is explicitly labeled **lower-confidence** than the long candidates
+above it: the model was trained and validated only to predict *top*-3
+sectors, never separately validated as a bottom/short-predicting model, so
+a low P(top-3) is the model's least-favored output, not a positively-tested
+"will underperform" signal. It compounds two unvalidated-for-this-purpose
+signals (sector rank + individual technicals) and says so.
+
+### A9. Reliability & Limitations + closing instruction
 
 A final table restates the hard limits (no directional prediction, sample-
 only news, survivorship-biased universe, no point-in-time fundamentals) and
@@ -258,10 +268,15 @@ bodies) crosses this boundary:
   is a maximum over trials, not a single a-priori test), plus an
   out-of-sample check, a regime-window test, and a Monte Carlo bootstrap on
   the winning strategy's actual trade sequence.
-- **Trade Levels** — hypothetical LONG entry/stop/TP1/TP2 from ATR
-  (`processing/scoring.py:trade_levels()`), with an earnings-proximity
-  warning (a stop assumes continuous price movement, which an earnings gap
-  can violate). Explicitly labeled "not a recommendation."
+- **Trade Levels** — hypothetical LONG **and SHORT** entry/stop/TP1/TP2 from
+  ATR (`processing/scoring.py:trade_levels(direction=...)`), with an
+  earnings-proximity warning (a stop assumes continuous price movement,
+  which an earnings gap can violate — a bigger risk for the short side,
+  where a gap moves against you). The short side additionally discloses
+  costs it does NOT model (borrow fees, unbounded loss risk, squeeze risk).
+  Both directions are explicitly labeled "not a recommendation" — showing a
+  short setup is not evidence shorting is a good idea, any more than the
+  long setup is evidence for going long.
 - **ML Prediction Engine** — `processing/ml/predict.py`: a calibrated
   logistic-regression + gradient-boosting ensemble trained across a
   103-ticker universe (Phase 1/2 research). Its own out-of-sample testing
