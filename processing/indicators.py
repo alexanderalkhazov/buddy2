@@ -140,9 +140,90 @@ class PriceSnapshot:
     volume: float | None
     vol_vs_30d_avg: float | None
     trend: str
+    # Computed in enrich() all along but not previously surfaced past it —
+    # Bollinger %B, Stochastic, ADX, and ROC10 were being thrown away.
+    bb_pctb: float | None = None
+    stoch_k: float | None = None
+    stoch_d: float | None = None
+    adx14: float | None = None
+    roc10: float | None = None
+    technical_composite: float | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def _clip(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, value))
+
+
+def technical_composite_score(
+    rsi14: float | None,
+    stoch_k: float | None,
+    adx14: float | None,
+    bb_pctb: float | None,
+    roc10: float | None,
+    macd_hist: float | None,
+) -> float | None:
+    """A single 0-100 technical-strength read, built from FIVE distinct
+    indicator families (momentum oscillator, stochastic, trend strength,
+    mean-reversion band position, rate-of-change) rather than one signal —
+    this is deliberately not "RSI alone" or "trend alone." Each component is
+    scored independently, then combined with fixed weights; missing
+    components are excluded and the rest renormalized (never treated as 0
+    or a neutral 50, which would silently understate real signal when data
+    is genuinely available for the other components).
+
+    This does NOT predict future returns — it is a same-family cousin of the
+    Baseline Score (processing/scoring.py), i.e. a transparent, deterministic
+    read of the CURRENT technical state, not a validated forecast. Whether
+    a high reading here corresponds to good forward performance is an
+    empirical question this function does not answer; see the ML/rocket_science
+    modules for the parts of this system that are actually walk-forward tested.
+
+    Weights: momentum(RSI) 25%, stochastic 20%, trend strength(ADX, direction
+    -agnostic — weighted by whether price is currently rising, via ROC) 20%,
+    Bollinger %B (mean-reversion position within the band) 20%, MACD
+    histogram sign 15%.
+    """
+    components: dict[str, float] = {}
+
+    if rsi14 is not None:
+        # 50 neutral, extremes (very overbought/oversold) pulled toward 50
+        # not because "extreme is bad" universally, but because RSI alone
+        # is a momentum oscillator, not a directional signal — its raw
+        # distance from 50 is what this component measures.
+        components["momentum"] = _clip(50 + (rsi14 - 50) * 1.0, 0, 100)
+
+    if stoch_k is not None:
+        components["stochastic"] = _clip(stoch_k, 0, 100)
+
+    if adx14 is not None and roc10 is not None:
+        # ADX alone is direction-agnostic (a strong downtrend scores just as
+        # high as a strong uptrend) — multiply by the sign of recent ROC so
+        # a high score here specifically means "strongly trending UP," not
+        # just "strongly trending."
+        trend_strength = _clip(adx14 * 2, 0, 100)  # ADX rarely exceeds 50 in practice
+        # Center 50, scaled by ADX magnitude, signed by ROC direction.
+        components["trend_strength_directional"] = _clip(50 + (trend_strength / 2) * (1 if roc10 >= 0 else -1), 0, 100)
+
+    if bb_pctb is not None:
+        # %B: 0 = at lower band, 1 = at upper band, 0.5 = at the mid/mean.
+        # Scored as "distance above the mean," not "closer to upper band is
+        # better" — this is a position read, not a claim that touching the
+        # upper band predicts further upside (mean-reversion research would
+        # argue the opposite).
+        components["band_position"] = _clip(bb_pctb * 100, 0, 100)
+
+    if macd_hist is not None:
+        components["macd_sign"] = 65.0 if macd_hist > 0 else 35.0
+
+    if not components:
+        return None
+
+    weights = {"momentum": 0.25, "stochastic": 0.20, "trend_strength_directional": 0.20, "band_position": 0.20, "macd_sign": 0.15}
+    weight_sum = sum(weights[k] for k in components)
+    return round(sum(weights[k] * v for k, v in components.items()) / weight_sum, 2)
 
 
 def _trend_label(last: float, s20, s50, s200) -> str:
@@ -198,4 +279,17 @@ def snapshot(ticker: str, df: pd.DataFrame) -> PriceSnapshot:
             else None
         ),
         trend=_trend_label(last, _f(row["sma20"]), _f(row["sma50"]), _f(row["sma200"])),
+        bb_pctb=_f(row["bb_pctb"]),
+        stoch_k=_f(row["stoch_k"]),
+        stoch_d=_f(row["stoch_d"]),
+        adx14=_f(row["adx14"]),
+        roc10=_f(row["roc10"]),
+        technical_composite=technical_composite_score(
+            rsi14=_f(row["rsi14"]),
+            stoch_k=_f(row["stoch_k"]),
+            adx14=_f(row["adx14"]),
+            bb_pctb=_f(row["bb_pctb"]),
+            roc10=_f(row["roc10"]),
+            macd_hist=_f(row["hist"]),
+        ),
     )

@@ -190,12 +190,25 @@ def generate(
             ("RSI(14)", _fmt(price["rsi14"])),
             ("MACD histogram", _fmt(price["macd_hist"])),
             ("SMA 20 / 50 / 200", f"{_fmt(price['sma20'])} / {_fmt(price['sma50'])} / {_fmt(price['sma200'])}"),
+            ("Bollinger Bands (lower/upper)", f"{_fmt(price.get('bb_lower'))} / {_fmt(price.get('bb_upper'))}"),
+            ("Bollinger %B", _fmt(price.get("bb_pctb"))),
+            ("Stochastic %K / %D", f"{_fmt(price.get('stoch_k'))} / {_fmt(price.get('stoch_d'))}"),
+            ("ADX(14) — trend strength", _fmt(price.get("adx14"))),
+            ("ROC(10)", _fmt(price.get("roc10"), "%")),
             ("ATR(14)", _fmt(price["atr14"])),
             ("Volume vs 30d avg", _fmt(price["vol_vs_30d_avg"], "x")),
             ("Trend", price["trend"]),
+            ("**Technical composite (0-100)**", f"**{_fmt(price.get('technical_composite'))}**"),
             ("52-week range", f"{_fmt(fund.get('fifty_two_week_low'))} – {_fmt(fund.get('fifty_two_week_high'))}"),
             ("Market cap", _fmt(fund.get("market_cap"))),
         ]
+    )
+    lines.append(
+        "\n*Technical composite blends 5 distinct indicator families (RSI momentum, Stochastic, "
+        "ADX trend-strength signed by ROC direction, Bollinger %B band position, MACD histogram sign — "
+        "processing/indicators.py:technical_composite_score) into one 0-100 read of the CURRENT technical "
+        "state. It is descriptive, not predictive — it does not carry the walk-forward-tested status of "
+        "the ML Prediction Engine or Baseline Score below.*"
     )
 
     if asset_class == "EQUITY":

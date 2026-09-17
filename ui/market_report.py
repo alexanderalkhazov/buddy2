@@ -852,10 +852,21 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 10) -> dict:
     """Direct, deterministic LONG and SHORT ticker rankings across ALL 13
     sectors' member tickers (~104 names) — no LLM, no interpretation step.
     composite score = the ticker's sector-level calibrated P(top-3) from
-    rocket_science, nudged by the ticker's OWN trend/RSI alignment. Risk
-    management (stops, sizing, entry timing) is deliberately NOT included
-    here — this is a ranked watchlist, not a trade plan. Use `report TICKER`
-    for actual trade levels on anything that comes out of this list."""
+    rocket_science, nudged by the ticker's OWN technical_composite (RSI +
+    Stochastic + ADX/ROC-signed trend strength + Bollinger %B + MACD sign —
+    see processing/indicators.py:technical_composite_score, five distinct
+    indicator families, not one). Risk management (stops, sizing, entry
+    timing) is deliberately NOT included here — this is a ranked watchlist,
+    not a trade plan. Use `report TICKER` for actual trade levels on
+    anything that comes out of this list.
+
+    NEITHER the sector probability NOR the technical-composite nudge has
+    been shown, on its own, to predict which INDIVIDUAL ticker within a
+    sector outperforms its peers — only the sector-level probability is
+    walk-forward validated (rocket_science). The technical-composite nudge
+    is a small (+/-10% of the sector probability, capped) tiebreaker among
+    otherwise-similar tickers in the same sector, not a second validated
+    signal — stated plainly, not hidden in the score."""
     from processing.ml.rocket_science import predict_next_move
 
     rocket = predict_next_move(refresh=refresh)
@@ -872,9 +883,12 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 10) -> dict:
                 s = price_snapshot(ticker, get_ohlcv(ticker, force=refresh))
             except Exception:
                 continue
-            trend_bonus = 0.05 if s.trend == "above_all_smas" else (-0.05 if s.trend == "below_all_smas" else 0.0)
-            rsi_long_bonus = 0.02 if (s.rsi14 is not None and 50 <= s.rsi14 <= 70) else 0.0
-            rsi_short_bonus = 0.02 if (s.rsi14 is not None and s.rsi14 <= 40) else 0.0
+            # technical_composite is 0-100, 50=neutral. Rescale to a nudge
+            # capped at +/-10% of the sector probability, signed by distance
+            # from neutral — bullish composite nudges long_score up and
+            # short_score down, symmetric for a bearish composite.
+            tc = s.technical_composite
+            nudge = ((tc - 50) / 50) * 0.10 * p_top3 if tc is not None else 0.0
             rows.append(
                 {
                     "ticker": ticker,
@@ -883,9 +897,13 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 10) -> dict:
                     "last": s.last,
                     "change_pct": s.change_pct,
                     "rsi14": s.rsi14,
+                    "stoch_k": s.stoch_k,
+                    "adx14": s.adx14,
+                    "bb_pctb": s.bb_pctb,
+                    "technical_composite": tc,
                     "trend": s.trend,
-                    "long_score": round(p_top3 + trend_bonus + rsi_long_bonus, 4),
-                    "short_score": round((1 - p_top3) - trend_bonus + rsi_short_bonus, 4),
+                    "long_score": round(p_top3 + nudge, 4),
+                    "short_score": round((1 - p_top3) - nudge, 4),
                 }
             )
 
@@ -922,29 +940,35 @@ def generate(refresh: bool = False) -> str:
         )
 
         lines.append("\n## TOP LONG CANDIDATES")
-        lines.append("| # | Ticker | Sector | P(sector top-3) | Last | Change % | RSI14 | Trend | Long Score |")
-        lines.append("|---|---|---|---|---|---|---|---|---|")
+        lines.append("| # | Ticker | Sector | P(sector top-3) | Last | Change % | RSI14 | Stoch %K | ADX14 | BB %B | Tech. Composite | Long Score |")
+        lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
         for i, r in enumerate(_pred["long"], 1):
             lines.append(
                 f"| {i} | {r['ticker']} | {r['sector'].replace('_', ' ').title()} | {_fmt(r['p_top3_sector'])} | "
-                f"{_fmt(r['last'])} | {_fmt(r['change_pct'])}% | {_fmt(r['rsi14'])} | {r['trend']} | {_fmt(r['long_score'])} |"
+                f"{_fmt(r['last'])} | {_fmt(r['change_pct'])}% | {_fmt(r['rsi14'])} | {_fmt(r['stoch_k'])} | "
+                f"{_fmt(r['adx14'])} | {_fmt(r['bb_pctb'])} | {_fmt(r['technical_composite'])} | {_fmt(r['long_score'])} |"
             )
 
         lines.append("\n## TOP SHORT CANDIDATES")
-        lines.append("| # | Ticker | Sector | P(sector top-3) | Last | Change % | RSI14 | Trend | Short Score |")
-        lines.append("|---|---|---|---|---|---|---|---|---|")
+        lines.append("| # | Ticker | Sector | P(sector top-3) | Last | Change % | RSI14 | Stoch %K | ADX14 | BB %B | Tech. Composite | Short Score |")
+        lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
         for i, r in enumerate(_pred["short"], 1):
             lines.append(
                 f"| {i} | {r['ticker']} | {r['sector'].replace('_', ' ').title()} | {_fmt(r['p_top3_sector'])} | "
-                f"{_fmt(r['last'])} | {_fmt(r['change_pct'])}% | {_fmt(r['rsi14'])} | {r['trend']} | {_fmt(r['short_score'])} |"
+                f"{_fmt(r['last'])} | {_fmt(r['change_pct'])}% | {_fmt(r['rsi14'])} | {_fmt(r['stoch_k'])} | "
+                f"{_fmt(r['adx14'])} | {_fmt(r['bb_pctb'])} | {_fmt(r['technical_composite'])} | {_fmt(r['short_score'])} |"
             )
 
         lines.append(
-            "\n*long_score = sector's calibrated P(top-3-of-13 by 20D return) + a small bonus for the "
-            "ticker's own bullish trend/RSI alignment. short_score mirrors this on the bearish side. "
-            "These are RANKINGS, not probabilities of profit — the underlying model's measured edge is "
-            f"modest (see Model reliability above). No stop-loss, position size, or entry timing is "
-            "computed here by design; that is `report TICKER`'s job."
+            "\n*long_score = sector's calibrated P(top-3-of-13 by 20D return), nudged up to +/-10% by the "
+            "ticker's OWN technical_composite (0-100, five indicator families: RSI momentum, Stochastic, "
+            "ADX trend-strength signed by ROC direction, Bollinger %B band position, MACD histogram sign — "
+            "processing/indicators.py:technical_composite_score). short_score mirrors this on the bearish "
+            "side. Only the sector probability is walk-forward validated; the technical-composite nudge is "
+            "an unvalidated tiebreaker among tickers in the same sector, not a second tested signal. These "
+            "are RANKINGS, not probabilities of profit — the underlying model's measured edge is modest "
+            "(see Model reliability above). No stop-loss, position size, or entry timing is computed here "
+            "by design; that is `report TICKER`'s job."
         )
 
     lines.append("\n---\n# SUPPORTING DATA")
@@ -972,7 +996,12 @@ def generate(refresh: bool = False) -> str:
                 ("Above 50d SMA", "YES" if idx.get("above_50sma") else "NO"),
                 ("Above 200d SMA", "YES" if idx.get("above_200sma") else "NO"),
                 ("RSI14", _fmt(idx.get("rsi14"))),
+                ("Stochastic %K", _fmt(idx.get("stoch_k"))),
+                ("ADX14 (trend strength)", _fmt(idx.get("adx14"))),
+                ("Bollinger %B", _fmt(idx.get("bb_pctb"))),
+                ("ROC10", f"{_fmt(idx.get('roc10'))}%"),
                 ("Trend bucket", idx.get("trend_bucket", "n/a")),
+                ("**Technical composite (0-100)**", f"**{_fmt(idx.get('technical_composite'))}**"),
             ]
         )
     lines.append("\n**Summary**")
@@ -982,8 +1011,11 @@ def generate(refresh: bool = False) -> str:
             ("VIX level", _fmt(mr.get("vix", {}).get("last"))),
             ("VIX regime", mr.get("vix", {}).get("regime", "n/a")),
             ("**Risk label**", f"**{mr.get('risk_label', 'n/a')}**"),
+            ("Market technical composite (avg SPY+QQQ, 0-100)", _fmt(mr.get("market_technical_composite"))),
+            ("**Market health (is the market technically good right now?)**", f"**{mr.get('market_health', 'n/a')}**"),
         ]
     )
+    lines.append(f"\n*{mr.get('market_health_note', '')}*")
     if mr.get("note"):
         lines.append(f"\n*{mr['note']}*")
 

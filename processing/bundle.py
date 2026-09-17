@@ -59,6 +59,14 @@ def build(
             "atr14": snap.atr14,
             "vol_vs_30d_avg": snap.vol_vs_30d_avg,
             "trend": snap.trend,
+            "bb_upper": snap.bb_upper,
+            "bb_lower": snap.bb_lower,
+            "bb_pctb": snap.bb_pctb,
+            "stoch_k": snap.stoch_k,
+            "stoch_d": snap.stoch_d,
+            "adx14": snap.adx14,
+            "roc10": snap.roc10,
+            "technical_composite": snap.technical_composite,
         },
     }
 

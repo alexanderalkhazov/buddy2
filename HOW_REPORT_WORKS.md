@@ -48,11 +48,16 @@ scores all ~104 tickers across all 13 US equity sectors:
 1. Pull each sector's calibrated `P(top-3-of-13)` from `rocket_science`
    (Part A7 below).
 2. For every member ticker of every sector, take a live technical snapshot
-   (trend vs. SMAs, RSI14, change%).
-3. `long_score` = the ticker's sector probability + a small bonus if the
-   ticker itself is trending bullish (`above_all_smas`) and RSI is in a
-   healthy 50-70 range. `short_score` mirrors this on the bearish side
-   (`below_all_smas`, RSI ≤ 40, using `1 - sector probability` as the base).
+   including the full indicator set — RSI, Stochastic, ADX, Bollinger %B,
+   ROC, MACD sign — reduced to that ticker's own `technical_composite`
+   (0-100, `processing/indicators.py:technical_composite_score`).
+3. `long_score` = the ticker's sector probability, nudged up or down by up
+   to ±10% based on how far its own `technical_composite` sits from neutral
+   (50). `short_score` mirrors this on the bearish side, using
+   `1 - sector probability` as the base. Only the sector probability is
+   walk-forward validated — the technical-composite nudge is an
+   unvalidated tiebreaker among tickers in the same sector, stated as such
+   in the report, not hidden in the score.
 4. The top 10 by each score are printed as **TOP LONG CANDIDATES** and
    **TOP SHORT CANDIDATES** tables, immediately after the model's own
    measured OOS reliability (AUC/Brier vs. a coin-flip baseline).
@@ -73,6 +78,17 @@ framing.
 computes:
 - each index's position vs. its own 20/50/200-day SMA (shown as an explicit
   YES/NO table, not just a label, so "mixed" is traceable)
+- **five additional indicator families per index**: Bollinger %B, Stochastic
+  %K, ADX(14) trend strength, ROC(10), and a **technical composite (0-100)**
+  blending all five plus RSI and MACD sign
+  (`processing/indicators.py:technical_composite_score`) — never one
+  indicator alone
+- **market_technical_composite** — the SPY/QQQ average of that composite —
+  and a **market_health** label (STRONG/CONSTRUCTIVE/WEAK/POOR), a direct,
+  descriptive answer to "is the market technically good right now?" This is
+  NOT a forecast — it describes current conditions only; whether strong
+  technicals precede good forward returns is a separate, walk-forward-tested
+  question answered by Part A7's `rocket_science` model, not by this score.
 - VIX level → LOW/NORMAL/ELEVATED/HIGH
 - an overall trend (bullish only if **both** SPY and QQQ agree) and a
   risk-on/risk-off/neutral label
@@ -247,8 +263,12 @@ bodies) crosses this boundary:
 
 `ui/report.py` walks the bundle and formats each section as Markdown:
 
-- **Price & Technicals** + **Relative Strength** vs. SPY and the ticker's
-  sector/industry ETF (is this move stock-specific or is the sector moving).
+- **Price & Technicals** — RSI, MACD, SMAs, Bollinger Bands + %B,
+  Stochastic %K/%D, ADX(14), ROC(10), ATR, volume-vs-30d-average, and a
+  **technical composite (0-100)** blending five of those into one
+  descriptive read of current technical state (not a forecast) — +
+  **Relative Strength** vs. SPY and the ticker's sector/industry ETF (is
+  this move stock-specific or is the sector moving).
 - **Fundamentals**, **Cash Flow & Balance Sheet**, **Valuation Multiples**,
   **Ownership & Positioning** (+ Insider Transactions).
 - **Valuation Sensitivity** — the trailing-to-forward EPS gap stated as

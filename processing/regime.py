@@ -38,6 +38,11 @@ def _index_regime(ticker: str) -> dict:
         "above_50sma": (snap.last is not None and snap.sma50 is not None and snap.last > snap.sma50),
         "above_200sma": (snap.last is not None and snap.sma200 is not None and snap.last > snap.sma200),
         "rsi14": snap.rsi14,
+        "stoch_k": snap.stoch_k,
+        "adx14": snap.adx14,
+        "bb_pctb": snap.bb_pctb,
+        "roc10": snap.roc10,
+        "technical_composite": snap.technical_composite,
     }
 
 
@@ -82,12 +87,37 @@ def market_regime() -> dict:
         else "neutral"
     )
 
+    composites = [c for c in (spy.get("technical_composite"), qqq.get("technical_composite")) if c is not None]
+    market_technical_composite = round(sum(composites) / len(composites), 2) if composites else None
+    if market_technical_composite is None:
+        market_health = "UNKNOWN"
+    elif market_technical_composite >= 65:
+        market_health = "STRONG"
+    elif market_technical_composite >= 50:
+        market_health = "CONSTRUCTIVE"
+    elif market_technical_composite >= 35:
+        market_health = "WEAK"
+    else:
+        market_health = "POOR"
+
     return {
         "spy": spy,
         "qqq": qqq,
         "vix": vix,
         "overall_trend": overall_trend,
         "risk_label": risk_label,
+        "market_technical_composite": market_technical_composite,
+        "market_health": market_health,
+        "market_health_note": (
+            "market_technical_composite = the average of SPY's and QQQ's technical_composite scores "
+            "(processing/indicators.py:technical_composite_score — a 0-100 blend of RSI momentum, "
+            "Stochastic, ADX trend-strength signed by ROC direction, Bollinger %B band position, and "
+            "MACD histogram sign; 5 distinct indicator families, not one signal). This is a DESCRIPTIVE "
+            "read of current technical conditions, not a validated predictor of forward returns — "
+            "whether STRONG technical readings actually precede good forward performance is exactly "
+            "the question the walk-forward-tested rocket_science/Phase 1-5 research answers, not this "
+            "score. Use this to answer 'is the market technically healthy right now,' not 'will it go up.'"
+        ),
         "note": (
             "Index-level trend (SPY/QQQ vs. their own 20/50/200 SMAs) plus VIX level — not a "
             "breadth, advance/decline, or intraday regime model. overall_trend requires SPY AND "
