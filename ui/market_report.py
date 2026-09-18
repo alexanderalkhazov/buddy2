@@ -763,7 +763,7 @@ encouraging than the underlying research_edge_status actually supports.
 ---
 ## 51. SHORT / UNDERPERFORMER CANDIDATES ARE LOWER-CONFIDENCE THAN LONG CANDIDATES
 
-The rocket_science model (Section on Next Market Move) was trained and validated ONLY to \
+The sector prediction model (Section on Next Market Move) was trained and validated ONLY to \
 predict TOP-3-of-13 sectors. Its lowest-probability sectors, shown under "Short / \
 Underperformer Candidates," are the model's least-favored outputs, NOT a separately \
 validated "will underperform" or "short-worthy" signal — do not describe them with the \
@@ -852,7 +852,7 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 10) -> dict:
     """Direct, deterministic LONG and SHORT ticker rankings across ALL 13
     sectors' member tickers (~104 names) — no LLM, no interpretation step.
     composite score = the ticker's sector-level calibrated P(top-3) from
-    rocket_science, nudged by the ticker's OWN technical_composite (RSI +
+    sector_prediction_model, nudged by the ticker's OWN technical_composite (RSI +
     Stochastic + ADX/ROC-signed trend strength + Bollinger %B + MACD sign +
     CCI + Ichimoku cloud position — see
     processing/indicators.py:technical_composite_score, seven distinct
@@ -867,11 +867,11 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 10) -> dict:
     NEITHER the sector probability NOR the technical-composite nudge has
     been shown, on its own, to predict which INDIVIDUAL ticker within a
     sector outperforms its peers — only the sector-level probability is
-    walk-forward validated (rocket_science). The technical-composite nudge
+    walk-forward validated (sector_prediction_model). The technical-composite nudge
     is a small (+/-10% of the sector probability, capped) tiebreaker among
     otherwise-similar tickers in the same sector, not a second validated
     signal — stated plainly, not hidden in the score."""
-    from processing.ml.rocket_science import predict_next_move
+    from processing.ml.sector_prediction_model import predict_next_move
 
     rocket = predict_next_move(refresh=refresh)
     sector_prob = {p["sector"]: p.get("p_top3_ensemble", 0.0) for p in rocket.get("predictions_all_13_sectors", []) if "error" not in p}
@@ -1374,8 +1374,8 @@ def generate(refresh: bool = False) -> str:
         except Exception as exc:
             lines.append(f"| {label} ({ticker}) | error: {str(exc)[:60]} | | | |")
 
-    # ---- Next Market Move — rocket_science model -----------------------------
-    lines.append("\n## Next Market Move — Predictive Model (rocket_science)")
+    # ---- Next Market Move — sector prediction model -----------------------------
+    lines.append("\n## Next Market Move — Predictive Model (sector_prediction_model)")
     lines.append(
         "A calibrated model (gradient boosting + logistic regression ensemble, walk-forward validated) "
         "covering ALL 13 US equity sectors — technology, semiconductors, software/internet, financials, "
@@ -1385,7 +1385,7 @@ def generate(refresh: bool = False) -> str:
         "top-3-of-13 sectors by 20-trading-day forward return."
     )
     try:
-        from processing.ml.rocket_science import predict_next_move
+        from processing.ml.sector_prediction_model import predict_next_move
 
         _rocket = predict_next_move(refresh=refresh)
     except Exception as exc:
@@ -1426,7 +1426,7 @@ def generate(refresh: bool = False) -> str:
         # ---- Short / Underperformer Candidates -------------------------------
         lines.append("\n## Short / Underperformer Candidates")
         lines.append(
-            "IMPORTANT SCOPE NOTE: rocket_science was trained and evaluated to predict TOP-3-of-13 "
+            "IMPORTANT SCOPE NOTE: sector_prediction_model was trained and evaluated to predict TOP-3-of-13 "
             "sectors — it was never separately trained or validated as a bottom-predicting model. The "
             "lowest P(top-3) sectors below are the model's LEAST-favored, not a positively validated "
             "\"will underperform\" or \"short-worthy\" signal — treat this section as lower-confidence than "

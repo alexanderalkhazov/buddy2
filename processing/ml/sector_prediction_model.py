@@ -1,5 +1,7 @@
-"""rocket_science.py — the most sophisticated predictive model in this
-project, built ON TOP OF (not instead of) everything Phases 1-5 already
+"""sector_prediction_model.py — calibrated, walk-forward-validated model
+predicting each US equity sector's probability of being a top-3-of-13
+performer over the next 20 trading days. The most sophisticated predictive
+model in this project, built ON TOP OF (not instead of) everything Phases 1-5 already
 established: individual-stock direction has no measurable edge (AUC ≈ 0.50);
 the one real, tested signal lives at the SECTOR level (volatility as the
 primary driver, negative momentum a secondary modifier); that edge is
@@ -133,7 +135,7 @@ def evaluate(refresh: bool = False) -> dict:
 
     if not fold_results:
         result = {"status": "INCONCLUSIVE", "reason": "not enough data to form a walk-forward fold"}
-        log_stat_experiment("rocket_science_evaluation", "rocket_science", result)
+        log_stat_experiment("sector_prediction_model_evaluation", "sector_prediction_model", result)
         return result
 
     mean_auc = round(float(np.mean([f["auc_ensemble"] for f in fold_results])), 4)
@@ -160,7 +162,7 @@ def evaluate(refresh: bool = False) -> dict:
             "genuine edge, regardless of how the AUC number looks in isolation."
         ),
     }
-    log_stat_experiment("rocket_science_evaluation", "rocket_science", {k: v for k, v in result.items() if k != "folds"})
+    log_stat_experiment("sector_prediction_model_evaluation", "sector_prediction_model", {k: v for k, v in result.items() if k != "folds"})
     return result
 
 
@@ -179,10 +181,10 @@ def train_and_save(refresh: bool = False) -> dict:
     import joblib
 
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-    joblib.dump({"scaler": scaler, "hgb": hgb, "lr": lr, "feature_cols": feature_cols}, ARTIFACT_DIR / "rocket_science_model.joblib")
+    joblib.dump({"scaler": scaler, "hgb": hgb, "lr": lr, "feature_cols": feature_cols}, ARTIFACT_DIR / "sector_prediction_model.joblib")
 
     evaluation = evaluate(refresh=refresh)
-    (ARTIFACT_DIR / "rocket_science_report.json").write_text(json.dumps(evaluation, indent=2, default=str))
+    (ARTIFACT_DIR / "sector_prediction_model_report.json").write_text(json.dumps(evaluation, indent=2, default=str))
     return evaluation
 
 
@@ -192,10 +194,10 @@ def predict_next_move(refresh: bool = False) -> dict:
     software, financials, healthcare, industrials, energy, consumer
     discretionary/staples, utilities, materials, communication services,
     real estate. Not just semiconductors, and not a single point call."""
-    model_path = ARTIFACT_DIR / "rocket_science_model.joblib"
-    report_path = ARTIFACT_DIR / "rocket_science_report.json"
+    model_path = ARTIFACT_DIR / "sector_prediction_model.joblib"
+    report_path = ARTIFACT_DIR / "sector_prediction_model_report.json"
     if not model_path.exists() or not report_path.exists():
-        return {"error": "no trained model on disk — run `python -m processing.ml.rocket_science` first"}
+        return {"error": "no trained model on disk — run `python -m processing.ml.sector_prediction_model` first"}
 
     import joblib
 

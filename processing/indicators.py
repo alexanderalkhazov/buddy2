@@ -265,7 +265,7 @@ def technical_composite_score(
     Baseline Score (processing/scoring.py), i.e. a transparent, deterministic
     read of the CURRENT technical state, not a validated forecast. Whether
     a high reading here corresponds to good forward performance is an
-    empirical question this function does not answer; see the ML/rocket_science
+    empirical question this function does not answer; see the ML/sector_prediction_model
     modules for the parts of this system that are actually walk-forward tested.
 
     Weights: momentum(RSI) 20%, stochastic 15%, trend strength(ADX, direction

@@ -115,7 +115,7 @@ def market_regime() -> dict:
             "MACD histogram sign; 5 distinct indicator families, not one signal). This is a DESCRIPTIVE "
             "read of current technical conditions, not a validated predictor of forward returns — "
             "whether STRONG technical readings actually precede good forward performance is exactly "
-            "the question the walk-forward-tested rocket_science/Phase 1-5 research answers, not this "
+            "the question the walk-forward-tested sector_prediction_model/Phase 1-5 research answers, not this "
             "score. Use this to answer 'is the market technically healthy right now,' not 'will it go up.'"
         ),
         "note": (

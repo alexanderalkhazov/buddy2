@@ -45,7 +45,7 @@ As of this version, the report leads with a **direct, deterministic
 ranking** — no LLM interpretation step, no analyst prompt. `_ranked_predictions()`
 scores all ~104 tickers across all 13 US equity sectors:
 
-1. Pull each sector's calibrated `P(top-3-of-13)` from `rocket_science`
+1. Pull each sector's calibrated `P(top-3-of-13)` from `sector_prediction_model`
    (Part A7 below).
 2. For every member ticker of every sector, take a live technical snapshot
    including the full indicator set — RSI, Stochastic, ADX, Bollinger %B,
@@ -101,7 +101,7 @@ computes:
   descriptive answer to "is the market technically good right now?" This is
   NOT a forecast — it describes current conditions only; whether strong
   technicals precede good forward returns is a separate, walk-forward-tested
-  question answered by Part A7's `rocket_science` model, not by this score.
+  question answered by Part A7's sector_prediction_model, not by this score.
 - VIX level → LOW/NORMAL/ELEVATED/HIGH
 - an overall trend (bullish only if **both** SPY and QQQ agree) and a
   risk-on/risk-off/neutral label
@@ -194,9 +194,9 @@ research (`processing/ml/`, Phases 1-5), not just a live data pull:
 - **Crypto Snapshot**: BTC/ETH/SOL — explicitly flagged as outside this
   project's backtested research (raw price/trend only).
 
-### A7. Next Market Move — the `rocket_science` model
+### A7. Next Market Move — the `sector_prediction_model`
 
-The most sophisticated model in this project (`processing/ml/rocket_science.py`),
+The most sophisticated model in this project (`processing/ml/sector_prediction_model.py`),
 built **on top of**, not instead of, everything Phases 1-5 established. It
 predicts, for **all 13 sectors** spanning the full US equity map (technology,
 semiconductors, software/internet, financials, healthcare, industrials,
