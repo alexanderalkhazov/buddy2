@@ -48,6 +48,20 @@ from storage.cache import get_ohlcv
 MAX_HOLD_DAYS = 30  # trading days — comfortably past the 20D horizon the sector label targets, to give a real TP1/stop resolution a chance without holding forever
 REPORT_PATH = ARTIFACT_DIR / "trade_mechanics_backtest_report.json"
 
+# Transaction-cost tiers (§28 of the quant-architecture spec this was built
+# against: "subtract realistic spread/slippage/commission... test LOW/BASE/
+# HIGH cost"). Expressed as round-trip basis points of the ENTRY price —
+# covers spread + slippage + commission together, not itemized separately,
+# since this system has no real bid/ask or execution data to itemize them
+# from; these are conventional, commonly-cited retail-equity ranges, not
+# fitted to this dataset. LOW matches a highly liquid mega-cap on a tight-
+# spread, commission-free broker; HIGH matches a less-liquid mid-cap with
+# real slippage on size. Every candidate in this report's tables clears a
+# $2M+/day liquidity floor (processing/scoring.py:trade_style_fit), so HIGH
+# is already a conservative-for-this-universe upper bound, not a worst case
+# for illiquid names this system would never surface as a candidate.
+COST_TIERS_BPS = {"LOW": 5, "BASE": 15, "HIGH": 40}
+
 # enrich() is computed ONCE per ticker over its FULL cached history and
 # memoized here, then indexed by date for every (date, ticker) point-in-time
 # lookup this module needs — hundreds of them across the backtest. This is
@@ -212,6 +226,25 @@ def run_backtest(direction: str = "long", max_dates_per_fold: int | None = None)
     tp1_r, stop_r = 1.5, 1.0
     expectancy_r = round(win_rate * tp1_r - (1 - win_rate) * stop_r, 4) if win_rate is not None else None
 
+    # Cost-adjusted expectancy per tier: each resolved trade's own risk-per-
+    # share (entry-to-stop distance, which varies trade-to-trade with ATR)
+    # converts a round-trip bps cost into that SPECIFIC trade's R-multiple
+    # terms — a wider-stop trade absorbs the same dollar cost as a smaller
+    # fraction of its own R, exactly as it would in reality, rather than
+    # applying one fixed R-cost to every trade regardless of its own stop
+    # distance.
+    cost_adjusted = {}
+    for tier, bps in COST_TIERS_BPS.items():
+        per_trade_r = []
+        for t in resolved:
+            risk_per_share = abs(t["entry"] - t["stop"])
+            if risk_per_share <= 0:
+                continue
+            cost_r = (bps / 10_000 * t["entry"]) / risk_per_share
+            raw_r = tp1_r if t["outcome"] == "WIN" else -stop_r
+            per_trade_r.append(raw_r - cost_r)
+        cost_adjusted[tier] = round(float(np.mean(per_trade_r)), 4) if per_trade_r else None
+
     return {
         "direction": direction,
         "n_trades_attempted": len(trades),
@@ -222,16 +255,20 @@ def run_backtest(direction: str = "long", max_dates_per_fold: int | None = None)
         "n_no_data": n_no_data,
         "win_rate_of_resolved": win_rate,
         "expectancy_r_per_trade": expectancy_r,
+        "expectancy_r_per_trade_cost_adjusted": cost_adjusted,
+        "cost_tiers_bps_round_trip": COST_TIERS_BPS,
         "mean_days_held_resolved": round(float(np.mean([t["days_held"] for t in resolved])), 2) if resolved else None,
         "note": (
             "win_rate_of_resolved = wins / (wins + losses), EXCLUDING timeouts (a trade that never touched "
             "stop or TP1 within MAX_HOLD_DAYS trading days) and NO_DATA (ticker lacked enough history at that "
             "date). expectancy_r_per_trade = win_rate*1.5R - (1-win_rate)*1R (TP1/stop's R-multiples by "
-            "construction) — POSITIVE means this system's exact entry/stop/TP1 mechanics would have made "
-            "money on this sample BEFORE costs; NEGATIVE means they would have lost money even before real- "
-            "world frictions are added. No transaction costs, slippage, or the possibility that a gap jumps "
-            "past the stop for a worse fill than assumed here are modeled — real expectancy is worse than "
-            "this number, never better."
+            "construction) — the mechanics BEFORE any cost. expectancy_r_per_trade_cost_adjusted subtracts a "
+            "round-trip cost (COST_TIERS_BPS: LOW/BASE/HIGH bps of entry price) converted into EACH trade's "
+            "own R-multiple terms via its own risk-per-share, then averaged — LOW/BASE/HIGH are conventional "
+            "retail-equity cost ranges, not fitted to this dataset. Still not modeled at any tier: the "
+            "possibility that a gap jumps past the stop for a worse fill than assumed, or market impact from "
+            "position size (this system doesn't know your account size). Real expectancy is worse than even "
+            "the HIGH-cost number, never better."
         ),
         "trades": trades,
     }

@@ -9,8 +9,18 @@
     "n_no_data": 0,
     "win_rate_of_resolved": 0.4721,
     "expectancy_r_per_trade": 0.1803,
+    "expectancy_r_per_trade_cost_adjusted": {
+      "LOW": 0.1699,
+      "BASE": 0.1493,
+      "HIGH": 0.0976
+    },
+    "cost_tiers_bps_round_trip": {
+      "LOW": 5,
+      "BASE": 15,
+      "HIGH": 40
+    },
     "mean_days_held_resolved": 10.45,
-    "note": "win_rate_of_resolved = wins / (wins + losses), EXCLUDING timeouts (a trade that never touched stop or TP1 within MAX_HOLD_DAYS trading days) and NO_DATA (ticker lacked enough history at that date). expectancy_r_per_trade = win_rate*1.5R - (1-win_rate)*1R (TP1/stop's R-multiples by construction) \u2014 POSITIVE means this system's exact entry/stop/TP1 mechanics would have made money on this sample BEFORE costs; NEGATIVE means they would have lost money even before real- world frictions are added. No transaction costs, slippage, or the possibility that a gap jumps past the stop for a worse fill than assumed here are modeled \u2014 real expectancy is worse than this number, never better.",
+    "note": "win_rate_of_resolved = wins / (wins + losses), EXCLUDING timeouts (a trade that never touched stop or TP1 within MAX_HOLD_DAYS trading days) and NO_DATA (ticker lacked enough history at that date). expectancy_r_per_trade = win_rate*1.5R - (1-win_rate)*1R (TP1/stop's R-multiples by construction) \u2014 the mechanics BEFORE any cost. expectancy_r_per_trade_cost_adjusted subtracts a round-trip cost (COST_TIERS_BPS: LOW/BASE/HIGH bps of entry price) converted into EACH trade's own R-multiple terms via its own risk-per-share, then averaged \u2014 LOW/BASE/HIGH are conventional retail-equity cost ranges, not fitted to this dataset. Still not modeled at any tier: the possibility that a gap jumps past the stop for a worse fill than assumed, or market impact from position size (this system doesn't know your account size). Real expectancy is worse than even the HIGH-cost number, never better.",
     "trades": [
       {
         "fold": 0,
@@ -5640,8 +5650,18 @@
     "n_no_data": 0,
     "win_rate_of_resolved": 0.3148,
     "expectancy_r_per_trade": -0.213,
+    "expectancy_r_per_trade_cost_adjusted": {
+      "LOW": -0.2245,
+      "BASE": -0.2474,
+      "HIGH": -0.3047
+    },
+    "cost_tiers_bps_round_trip": {
+      "LOW": 5,
+      "BASE": 15,
+      "HIGH": 40
+    },
     "mean_days_held_resolved": 10.75,
-    "note": "win_rate_of_resolved = wins / (wins + losses), EXCLUDING timeouts (a trade that never touched stop or TP1 within MAX_HOLD_DAYS trading days) and NO_DATA (ticker lacked enough history at that date). expectancy_r_per_trade = win_rate*1.5R - (1-win_rate)*1R (TP1/stop's R-multiples by construction) \u2014 POSITIVE means this system's exact entry/stop/TP1 mechanics would have made money on this sample BEFORE costs; NEGATIVE means they would have lost money even before real- world frictions are added. No transaction costs, slippage, or the possibility that a gap jumps past the stop for a worse fill than assumed here are modeled \u2014 real expectancy is worse than this number, never better.",
+    "note": "win_rate_of_resolved = wins / (wins + losses), EXCLUDING timeouts (a trade that never touched stop or TP1 within MAX_HOLD_DAYS trading days) and NO_DATA (ticker lacked enough history at that date). expectancy_r_per_trade = win_rate*1.5R - (1-win_rate)*1R (TP1/stop's R-multiples by construction) \u2014 the mechanics BEFORE any cost. expectancy_r_per_trade_cost_adjusted subtracts a round-trip cost (COST_TIERS_BPS: LOW/BASE/HIGH bps of entry price) converted into EACH trade's own R-multiple terms via its own risk-per-share, then averaged \u2014 LOW/BASE/HIGH are conventional retail-equity cost ranges, not fitted to this dataset. Still not modeled at any tier: the possibility that a gap jumps past the stop for a worse fill than assumed, or market impact from position size (this system doesn't know your account size). Real expectancy is worse than even the HIGH-cost number, never better.",
     "trades": [
       {
         "fold": 0,

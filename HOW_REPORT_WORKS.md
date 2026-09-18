@@ -274,6 +274,60 @@ summarized in the report's Sector Opportunity Ranking section.
 
 ---
 
+## Step 5 — Quant-architecture spec extensions
+
+A user-provided quant-architecture spec asked for a fuller institutional
+research-platform shape (multi-horizon targets, abstention, cost-adjusted
+backtests, decile spreads, risk/predictive feature separation,
+reproducibility metadata). Implemented incrementally, each tested before
+shipping, each additive to the existing 20D-validated model rather than
+replacing it:
+
+- **60-Day secondary horizon** — `multi_horizon_research.py` found 60D
+  genuinely stronger than 20D on both classification AUC (0.607 vs 0.590)
+  and an independent Ridge-regression Rank IC (0.177 vs 0.104), two target
+  formulations agreeing on the same ranking. Promoted to a second trained
+  artifact (`sector_prediction_model_60d.joblib`) and its own "60-Day
+  Outlook" report section — additive; no candidate ranking or trade level
+  anywhere else uses it yet, since it hasn't been through the same
+  Phase 4/5-depth stress-testing as 20D.
+- **Abstention gate** — every sector probability now carries `has_edge`,
+  derived from where it falls in the model's own pooled-OOS calibration
+  table (5 buckets, actual hit rate vs. base rate), not a hardcoded cutoff.
+  `clears_margin_of_error` reports the stricter, confidence-interval
+  version of the same check separately, so "real but unremarkable" isn't
+  conflated with "confidently separated."
+- **Cross-sectional spread check** — the sector-level analog of decile
+  analysis: mean top-3-vs-bottom-3 predicted-sector forward-return spread,
+  pooled across OOS dates (`sector_prediction_model.py:_top_bottom_spread`,
+  registry.py's `_decile_spread` does the equivalent for the individual-
+  stock legacy pipeline — deciles don't fit 13 cross-sectional units, so
+  this uses the model's own top-3/bottom-3 split instead of a 10%/90% one).
+- **Transaction-cost-adjusted backtest** — `trade_mechanics_backtest.py`
+  now reports expectancy at LOW/BASE/HIGH round-trip cost tiers (5/15/40
+  bps of entry price, converted into each trade's own R-multiple via its
+  own risk-per-share), alongside the pre-cost number, never replacing it.
+- **Risk vs. predictive feature separation** — Chandelier Exit
+  (`chandelier_long_stop`/`_short_stop`) was computed since early in this
+  project but never surfaced anywhere; it's a RISK/EXECUTION trailing-stop
+  level, deliberately never fed into `technical_composite_score` or any
+  ranking, and now shown in each candidate's HOW section labeled
+  explicitly as risk/execution info, not a second signal.
+- **Reproducibility metadata** — every trained artifact now carries a
+  `config_hash` (feature list + horizon + random seed, order-sensitive),
+  plus training row count/date range/timestamp, and a fixed `RANDOM_SEED`
+  so retraining on the same data reproduces the same model rather than a
+  different one each run.
+
+Deliberately NOT implemented, with reasoning, in the earlier "best
+algorithmic method" research pass: CPCV (too few distinct purged blocks
+for its benefit to apply), LightGBM/XGBoost/CatBoost (no evidence of
+improvement over the existing HistGradientBoostingClassifier at this
+sample size), and a learned stacking meta-learner (would shrink an
+already-scarce OOS sample further).
+
+---
+
 ## The one invariant
 
 **Nothing in `ui/` ever invents a number.** Every value is fetched from a

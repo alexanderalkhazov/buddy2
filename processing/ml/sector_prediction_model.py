@@ -58,6 +58,7 @@ DEFAULT_HORIZON_DAYS = 20  # the original, most-stress-tested production horizon
 # style adversarial/non-overlapping checks) the 20D target has.
 SECONDARY_HORIZON_DAYS = 60
 EMBARGO_DAYS = DEFAULT_HORIZON_DAYS  # kept as an alias — trade_mechanics_backtest.py imports this directly for the 20D production mechanics backtest
+RANDOM_SEED = 42  # fixed everywhere a model is fit here — reproducibility (spec §37): same dataset + same seed must reproduce the same trained artifact, not a different one each run
 
 # Interaction features on top of the base FEATURE_COLUMNS — this is the
 # "more sophisticated" part: explicit cross-terms a plain linear/tree model
@@ -242,6 +243,46 @@ def abstention_gate(p_top3_sector: float, calibration_table: list[dict] | None, 
     }
 
 
+def _top_bottom_spread(oos_df: pd.DataFrame, k: int = TOP_K) -> dict:
+    """Cross-sectional top-K vs bottom-K forward-return spread, computed
+    ONLY from pooled OOS predictions — the sector-level analog of the spec's
+    §24 decile-spread analysis (registry.py:_decile_spread does the same
+    thing for the individual-stock legacy pipeline; deciles don't make
+    sense with only 13 cross-sectional units per date, so this uses the
+    same top-3/bottom-3 split the model is actually trained and graded on,
+    rather than forcing a 10%/90% split onto 13 rows)."""
+    if oos_df.empty:
+        return {"available": False, "reason": "no pooled OOS predictions with a return column"}
+    df = oos_df.dropna(subset=["p_ensemble", "fwd_ret"])
+    spreads, dates_used = [], 0
+    for _, group in df.groupby("date"):
+        if len(group) < 2 * k:
+            continue
+        g = group.sort_values("p_ensemble")
+        bottom, top = g.iloc[:k], g.iloc[-k:]
+        spreads.append(top["fwd_ret"].mean() - bottom["fwd_ret"].mean())
+        dates_used += 1
+    if not spreads:
+        return {"available": False, "reason": f"no date had >= {2*k} sectors to rank cross-sectionally"}
+    arr = np.array(spreads)
+    return {
+        "available": True,
+        "k": k,
+        "n_dates": dates_used,
+        "mean_top_minus_bottom_k_return_pct": round(float(arr.mean()), 3),
+        "median_top_minus_bottom_k_return_pct": round(float(np.median(arr)), 3),
+        "pct_dates_positive_spread": round(float((arr > 0).mean() * 100), 1),
+        "spread_sharpe_like": round(float(arr.mean() / arr.std()), 3) if arr.std() > 0 else None,
+        "note": (
+            f"Per OOS-prediction date: mean forward return of the top-{k}-ranked sectors minus the "
+            f"bottom-{k}-ranked, by the model's own predicted probability. spread_sharpe_like is mean/std "
+            "of the per-date spread series — NOT annualized, NOT a real backtest Sharpe (no costs, no "
+            "position sizing, overlapping dates from stride-sampled rebalance points) — a rough signal-vs-"
+            "noise ratio only, read directionally, not quoted as a strategy Sharpe."
+        ),
+    }
+
+
 def evaluate(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON_DAYS) -> dict:
     """Purged, embargoed walk-forward evaluation — same discipline as every
     other phase. Returns honest OOS metrics, never fit-then-report-in-sample."""
@@ -252,6 +293,8 @@ def evaluate(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON_DAYS) ->
     splits = purged_walk_forward_splits(data["date"], n_folds=4, embargo_days=horizon_days)
     fold_results = []
     oos_probs, oos_labels = [], []  # pooled across folds, for the calibration table / abstention gate below
+    oos_spread_rows = []  # pooled (date, p_ensemble, fwd_ret) for the top-vs-bottom spread analysis below
+    fwd_ret_col = f"fwd_ret_{horizon_days}d"
     for fold_i, (train_idx, test_idx) in enumerate(splits):
         X_train, X_test = data.loc[train_idx, feature_cols], data.loc[test_idx, feature_cols]
         y_train, y_test = data.loc[train_idx, "is_top_k"].values, data.loc[test_idx, "is_top_k"].values
@@ -262,10 +305,10 @@ def evaluate(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON_DAYS) ->
         Xtr, Xte = scaler.transform(X_train), scaler.transform(X_test)
 
         hgb = CalibratedClassifierCV(
-            HistGradientBoostingClassifier(max_depth=4, max_iter=150), method="sigmoid", cv=3
+            HistGradientBoostingClassifier(max_depth=4, max_iter=150, random_state=RANDOM_SEED), method="sigmoid", cv=3
         ).fit(Xtr, y_train)
         lr = CalibratedClassifierCV(
-            LogisticRegression(max_iter=1000, class_weight="balanced"), method="sigmoid", cv=3
+            LogisticRegression(max_iter=1000, class_weight="balanced", random_state=RANDOM_SEED), method="sigmoid", cv=3
         ).fit(Xtr, y_train)
 
         p_hgb = hgb.predict_proba(Xte)[:, 1]
@@ -273,6 +316,12 @@ def evaluate(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON_DAYS) ->
         p_ensemble = (p_hgb + p_lr) / 2
         oos_probs.append(p_ensemble)
         oos_labels.append(y_test)
+        if fwd_ret_col in data.columns:
+            oos_spread_rows.append(pd.DataFrame({
+                "date": data.loc[test_idx, "date"].values,
+                "p_ensemble": p_ensemble,
+                "fwd_ret": data.loc[test_idx, fwd_ret_col].values,
+            }))
 
         fold_results.append(
             {
@@ -296,6 +345,7 @@ def evaluate(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON_DAYS) ->
     base_rate = round(float(data["is_top_k"].mean()), 4)  # ~TOP_K/13 by construction
     coin_flip_brier = round(base_rate * (1 - base_rate), 4)
     calibration_table = _oos_calibration_table(np.concatenate(oos_probs), np.concatenate(oos_labels))
+    spread_analysis = _top_bottom_spread(pd.concat(oos_spread_rows, ignore_index=True) if oos_spread_rows else pd.DataFrame())
 
     result = {
         "target": f"top_{TOP_K}_of_13_sectors_by_{horizon_days}D_forward_return",
@@ -310,6 +360,7 @@ def evaluate(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON_DAYS) ->
         "beats_coin_flip": mean_brier < coin_flip_brier,
         "status": "PASS" if mean_auc > 0.55 and mean_brier < coin_flip_brier else "NO_DEMONSTRATED_EDGE",
         "calibration_table": calibration_table,
+        "top_bottom_spread": spread_analysis,
         "note": (
             f"base_rate ({base_rate}) is the unconditional probability any sector is top-{TOP_K} of 13 on a "
             "given date (~TOP_K/13 by construction, not a finding). mean_oos_brier must beat "
@@ -325,6 +376,20 @@ def evaluate(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON_DAYS) ->
     return result
 
 
+def _feature_set_hash(feature_cols: list[str], horizon_days: int) -> str:
+    """A short, stable fingerprint of exactly what produced a given artifact
+    — spec §37 reproducibility: 'for every prediction, know what features
+    were available and what model version was used.' Order-sensitive
+    (feature order affects scaler/model column alignment, so a reordering
+    IS a different config, not a cosmetic change) and includes horizon_days
+    and RANDOM_SEED so the same feature list trained at a different horizon
+    or seed hashes differently."""
+    import hashlib
+
+    payload = json.dumps({"features": feature_cols, "horizon_days": horizon_days, "seed": RANDOM_SEED}, sort_keys=False)
+    return hashlib.sha256(payload.encode()).hexdigest()[:12]
+
+
 def train_and_save(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON_DAYS) -> dict:
     df, extra_cols = _build_dataset(horizon_days=horizon_days)
     feature_cols = _feature_set(extra_cols)
@@ -334,16 +399,33 @@ def train_and_save(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON_DA
     scaler = StandardScaler().fit(X)
     Xs = scaler.transform(X)
 
-    hgb = CalibratedClassifierCV(HistGradientBoostingClassifier(max_depth=4, max_iter=150), method="sigmoid", cv=3).fit(Xs, y)
-    lr = CalibratedClassifierCV(LogisticRegression(max_iter=1000, class_weight="balanced"), method="sigmoid", cv=3).fit(Xs, y)
+    hgb = CalibratedClassifierCV(HistGradientBoostingClassifier(max_depth=4, max_iter=150, random_state=RANDOM_SEED), method="sigmoid", cv=3).fit(Xs, y)
+    lr = CalibratedClassifierCV(LogisticRegression(max_iter=1000, class_weight="balanced", random_state=RANDOM_SEED), method="sigmoid", cv=3).fit(Xs, y)
 
     import joblib
+    from datetime import datetime, timezone
+
+    config_hash = _feature_set_hash(feature_cols, horizon_days)
+    repro_metadata = {
+        "config_hash": config_hash,
+        "random_seed": RANDOM_SEED,
+        "horizon_days": horizon_days,
+        "n_features": len(feature_cols),
+        "feature_cols": feature_cols,
+        "n_training_rows": len(data),
+        "training_date_range": [str(pd.Timestamp(data["date"].min()).date()), str(pd.Timestamp(data["date"].max()).date())],
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+    }
 
     model_path, report_path = _artifact_paths(horizon_days)
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-    joblib.dump({"scaler": scaler, "hgb": hgb, "lr": lr, "feature_cols": feature_cols, "horizon_days": horizon_days}, model_path)
+    joblib.dump(
+        {"scaler": scaler, "hgb": hgb, "lr": lr, "feature_cols": feature_cols, "horizon_days": horizon_days, "repro_metadata": repro_metadata},
+        model_path,
+    )
 
     evaluation = evaluate(refresh=refresh, horizon_days=horizon_days)
+    evaluation["repro_metadata"] = repro_metadata
     report_path.write_text(json.dumps(evaluation, indent=2, default=str))
     return evaluation
 
@@ -499,6 +581,8 @@ def predict_next_move(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON
 
     return {
         "target": evaluation.get("target", f"top_{TOP_K}_of_13_sectors_by_20D_forward_return"),
+        "repro_metadata": artifact.get("repro_metadata") or evaluation.get("repro_metadata"),
+        "top_bottom_spread": evaluation.get("top_bottom_spread"),
         "predictions_all_13_sectors": predictions,
         "any_sector_has_edge": any_edge,
         "abstention_note": (

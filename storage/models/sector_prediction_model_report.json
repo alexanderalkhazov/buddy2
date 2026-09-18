@@ -78,5 +78,57 @@
       "actual_rate_margin": null
     }
   ],
-  "note": "base_rate (0.2308) is the unconditional probability any sector is top-3 of 13 on a given date (~TOP_K/13 by construction, not a finding). mean_oos_brier must beat coin_flip_brier_baseline (predicting base_rate for everyone, every time) to represent any real information \u2014 an AUC above 0.55 with a Brier score above the coin-flip baseline is NOT a genuine edge, regardless of how the AUC number looks in isolation."
+  "top_bottom_spread": {
+    "available": true,
+    "k": 3,
+    "n_dates": 154,
+    "mean_top_minus_bottom_k_return_pct": 1.5,
+    "median_top_minus_bottom_k_return_pct": 1.504,
+    "pct_dates_positive_spread": 63.0,
+    "spread_sharpe_like": 0.283,
+    "note": "Per OOS-prediction date: mean forward return of the top-3-ranked sectors minus the bottom-3-ranked, by the model's own predicted probability. spread_sharpe_like is mean/std of the per-date spread series \u2014 NOT annualized, NOT a real backtest Sharpe (no costs, no position sizing, overlapping dates from stride-sampled rebalance points) \u2014 a rough signal-vs-noise ratio only, read directionally, not quoted as a strategy Sharpe."
+  },
+  "note": "base_rate (0.2308) is the unconditional probability any sector is top-3 of 13 on a given date (~TOP_K/13 by construction, not a finding). mean_oos_brier must beat coin_flip_brier_baseline (predicting base_rate for everyone, every time) to represent any real information \u2014 an AUC above 0.55 with a Brier score above the coin-flip baseline is NOT a genuine edge, regardless of how the AUC number looks in isolation.",
+  "repro_metadata": {
+    "config_hash": "cc1f0b459148",
+    "random_seed": 42,
+    "horizon_days": 20,
+    "n_features": 28,
+    "feature_cols": [
+      "ret_1d",
+      "ret_5d",
+      "ret_10d",
+      "ret_20d",
+      "ret_60d",
+      "rsi14",
+      "macd_hist_norm",
+      "atr_pct",
+      "realized_vol_20d",
+      "dist_sma20_pct",
+      "dist_sma50_pct",
+      "dist_sma200_pct",
+      "volume_zscore",
+      "rel_ret_20d_vs_benchmark",
+      "breadth_pct_above_sma50",
+      "breadth_pct_above_sma200",
+      "breadth_pct_positive_20d",
+      "breadth_median_rsi",
+      "trend_regime_bull",
+      "vol_regime_ordinal",
+      "vix_chg_5d",
+      "yield_curve_10y2y",
+      "vol_z",
+      "mom_z",
+      "vol_x_mom",
+      "vol_rank",
+      "mom_rank",
+      "breadth_x_vol"
+    ],
+    "n_training_rows": 2665,
+    "training_date_range": [
+      "2022-07-21",
+      "2026-08-14"
+    ],
+    "trained_at": "2026-09-18T20:35:29.226352+00:00"
+  }
 }

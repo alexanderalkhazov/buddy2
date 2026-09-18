@@ -459,6 +459,13 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 5) -> dict:
                     "mfi14": s.mfi14,
                     "aroon_oscillator": s.aroon_oscillator,
                     "keltner_pctk": s.keltner_pctk,
+                    # RISK/EXECUTION feature, deliberately never fed into
+                    # technical_composite_score or long_score/short_score —
+                    # a trailing stop describes how to manage a position
+                    # already taken, not whether to predict the direction
+                    # is right. See §33-style separation in HOW_REPORT_WORKS.md.
+                    "chandelier_long_stop": s.chandelier_long_stop,
+                    "chandelier_short_stop": s.chandelier_short_stop,
                     "technical_composite": tc,
                     "trend": s.trend,
                     "trade_style": scoring.trade_style_fit(
@@ -541,12 +548,20 @@ def generate(refresh: bool = False) -> str:
                     ),
                     ("**LONG: expectancy per trade (R-multiples, before costs)**", f"**{_fmt(_tm_long.get('expectancy_r_per_trade'))}R**"),
                     (
+                        "LONG: cost-adjusted expectancy (LOW/BASE/HIGH)",
+                        " / ".join(f"{_fmt(v)}R" for v in (_tm_long.get('expectancy_r_per_trade_cost_adjusted') or {}).values()) or "n/a",
+                    ),
+                    (
                         "SHORT: win rate (TP1 vs stop, resolved trades)",
                         f"{_pct(_tm_short.get('win_rate_of_resolved'))} "
                         f"({_tm_short.get('n_wins', 'n/a')}W/{_tm_short.get('n_losses', 'n/a')}L of {_tm_short.get('n_resolved', 'n/a')} resolved, "
                         f"{_tm_short.get('n_timeout', 'n/a')} timed out)",
                     ),
                     ("**SHORT: expectancy per trade (R-multiples, before costs)**", f"**{_fmt(_tm_short.get('expectancy_r_per_trade'))}R**"),
+                    (
+                        "SHORT: cost-adjusted expectancy (LOW/BASE/HIGH)",
+                        " / ".join(f"{_fmt(v)}R" for v in (_tm_short.get('expectancy_r_per_trade_cost_adjusted') or {}).values()) or "n/a",
+                    ),
                 ]
             )
             _short_r = _tm_short.get("expectancy_r_per_trade")
@@ -557,8 +572,11 @@ def generate(refresh: bool = False) -> str:
                 "logic that ranks the tables below — and its ATR entry/stop/TP1 (processing/scoring.py) is "
                 "walked forward day-by-day against REAL subsequent price bars to see which was hit first. "
                 "expectancy_r_per_trade = win_rate×1.5R − (1−win_rate)×1R, the R-multiples TP1/stop use by "
-                "construction. No transaction costs, slippage, or gap-past-stop fills are modeled — real "
-                "expectancy is worse than shown, never better."
+                "construction. Cost-adjusted expectancy subtracts a round-trip LOW/BASE/HIGH bps cost "
+                "(5/15/40 bps of entry price, converted into each trade's own R-terms via its own risk-per-"
+                "share) — conventional retail-equity ranges, not fitted to this data. Gap-past-stop fills "
+                "and market impact are still not modeled at any tier — real expectancy is worse than even "
+                "the HIGH-cost number, never better."
                 + (
                     f" **The SHORT side's measured expectancy is NEGATIVE ({_fmt(_short_r)}R/trade)** — this "
                     "system's short mechanics would have LOST money on this historical sample even before "
@@ -651,11 +669,21 @@ def generate(refresh: bool = False) -> str:
                 lines += _kv_table(
                     [
                         ("Entry (latest close)", _fmt(r.get(entry_key))),
-                        ("Stop-loss", _fmt(r.get(stop_key))),
+                        ("Stop-loss (fixed ATR-multiple)", _fmt(r.get(stop_key))),
                         ("Take-profit 1", _fmt(r.get(tp1_key))),
                         ("Sector", r["sector"].replace("_", " ").title()),
                     ]
                 )
+                chandelier_key = "chandelier_long_stop" if direction == "long" else "chandelier_short_stop"
+                chandelier_val = r.get(chandelier_key)
+                if chandelier_val is not None:
+                    lines.append(
+                        f"- *RISK/EXECUTION info, not a prediction: Chandelier Exit trailing stop = "
+                        f"{_fmt(chandelier_val)} — anchors off the {'highest high' if direction == 'long' else 'lowest low'} "
+                        f"of the trailing 22 days (3x ATR), not off entry price like the fixed stop above. "
+                        f"Tightens automatically as the trade moves in your favor; a position-management "
+                        f"alternative to the fixed stop, not a second signal about whether to take the trade.*"
+                    )
 
                 lines.append("\n**WHY — what drove this candidate (indicators)**")
                 for reason in _indicator_reasons(r, direction):
@@ -1169,6 +1197,23 @@ def generate(refresh: bool = False) -> str:
             "stress-testing (sector-neutral, adversarial, non-overlapping, point-in-time-universe checks) "
             "as the core Phase 4/5 finding — treat it as an experimental extension, not equally validated.*"
         )
+        _spread = _rocket.get("top_bottom_spread") or {}
+        if _spread.get("available"):
+            lines.append(
+                f"\n**Cross-sectional spread check** (top-{_spread['k']} vs. bottom-{_spread['k']} predicted "
+                f"sectors, realized forward return, pooled OOS): mean spread "
+                f"**{_fmt(_spread['mean_top_minus_bottom_k_return_pct'])}%**, positive on "
+                f"{_fmt(_spread['pct_dates_positive_spread'])}% of {_spread['n_dates']} OOS dates. "
+                f"*{_spread['note']}*"
+            )
+        _repro = _rocket.get("repro_metadata") or {}
+        if _repro.get("config_hash"):
+            lines.append(
+                f"\n*Reproducibility: config_hash `{_repro['config_hash']}` — {_repro.get('n_features', 'n/a')} "
+                f"features, seed {_repro.get('random_seed', 'n/a')}, trained on "
+                f"{_repro.get('n_training_rows', 'n/a')} rows spanning {_repro.get('training_date_range', 'n/a')}. "
+                "Any two runs with this same hash used the identical feature set, horizon, and random seed.*"
+            )
         lines.append("\n**Calibrated probability, ALL 13 sectors (top-3-of-13 by 20D forward return)**")
         lines.append("| Sector | P(top-3) | Edge? | Model Agreement | 20D Vol | 20D Momentum |")
         lines.append("|---|---|---|---|---|---|")
