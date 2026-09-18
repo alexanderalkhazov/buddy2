@@ -1,5 +1,6 @@
 {
   "target": "top_3_of_13_sectors_by_20D_forward_return",
+  "horizon_days": 20,
   "n_rows": 2665,
   "n_folds": 3,
   "folds": [

@@ -50,8 +50,14 @@ from processing.ml.universe import BENCHMARK, EXPANDED_UNIVERSE_V2
 from storage.cache import get_ohlcv
 
 TOP_K = 3  # "top-3-of-13 sectors" is the prediction target
-HORIZON_COL = "fwd_ret_20d"
-EMBARGO_DAYS = 20
+DEFAULT_HORIZON_DAYS = 20  # the original, most-stress-tested production horizon
+# Second production horizon, added after multi_horizon_research.py found it
+# genuinely stronger on both classification AUC (0.607 vs 0.590) and
+# regression Rank IC (0.177 vs 0.104) — additive, not a replacement, since
+# 60D hasn't yet been through the same depth of stress-testing (Phase 4/5-
+# style adversarial/non-overlapping checks) the 20D target has.
+SECONDARY_HORIZON_DAYS = 60
+EMBARGO_DAYS = DEFAULT_HORIZON_DAYS  # kept as an alias — trade_mechanics_backtest.py imports this directly for the 20D production mechanics backtest
 
 # Interaction features on top of the base FEATURE_COLUMNS — this is the
 # "more sophisticated" part: explicit cross-terms a plain linear/tree model
@@ -98,23 +104,29 @@ def _add_interaction_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]
     return d, extra
 
 
-def _label_top_k(df: pd.DataFrame, k: int = TOP_K) -> pd.DataFrame:
-    """Cross-sectional label: 1 if this sector's fwd_ret_20d ranks in the
-    top k among all sectors observed on the SAME date, else 0. Labels every
-    sector-date, including the ones with no future window yet (NaN target,
-    dropped downstream) — never fabricated."""
+def _label_top_k(df: pd.DataFrame, k: int = TOP_K, horizon_days: int = 20) -> pd.DataFrame:
+    """Cross-sectional label: 1 if this sector's fwd_ret_{horizon_days}d
+    ranks in the top k among all sectors observed on the SAME date, else 0.
+    Labels every sector-date, including the ones with no future window yet
+    (NaN target, dropped downstream) — never fabricated. Generalized from a
+    hardcoded 20D column (see processing/ml/multi_horizon_research.py,
+    which found 60D genuinely stronger than 20D on both AUC and Rank IC —
+    the horizon_days parameter is what promotes that research finding into
+    an alternate, equally-real production output rather than a one-off
+    script result."""
+    horizon_col = f"fwd_ret_{horizon_days}d"
     d = df.copy()
-    d["rank_that_date"] = d.groupby("date")[HORIZON_COL].rank(ascending=False, method="first")
-    d["n_that_date"] = d.groupby("date")[HORIZON_COL].transform("count")
-    d["is_top_k"] = np.where(d[HORIZON_COL].isna(), np.nan, (d["rank_that_date"] <= k).astype(float))
+    d["rank_that_date"] = d.groupby("date")[horizon_col].rank(ascending=False, method="first")
+    d["n_that_date"] = d.groupby("date")[horizon_col].transform("count")
+    d["is_top_k"] = np.where(d[horizon_col].isna(), np.nan, (d["rank_that_date"] <= k).astype(float))
     return d
 
 
-def _build_dataset() -> pd.DataFrame:
+def _build_dataset(horizon_days: int = 20) -> tuple[pd.DataFrame, list[str]]:
     stock_full, _ = build_dataset_v2()
     sector_full = build_sector_dataset(stock_dataset=stock_full)
     sector_full, extra_cols = _add_interaction_features(sector_full)
-    sector_full = _label_top_k(sector_full)
+    sector_full = _label_top_k(sector_full, horizon_days=horizon_days)
     return sector_full, extra_cols
 
 
@@ -123,14 +135,28 @@ def _feature_set(extra_cols: list[str]) -> list[str]:
     return [c for c in (*FEATURE_COLUMNS, *breadth_cols, *REGIME_FEATURE_COLUMNS, *extra_cols)]
 
 
-def evaluate(refresh: bool = False) -> dict:
+def _artifact_paths(horizon_days: int) -> tuple:
+    """Filenames for the DEFAULT horizon stay exactly as they always were
+    (sector_prediction_model.joblib / _report.json) — no other module
+    needs to change how it locates the primary model. A secondary horizon
+    gets its own horizon-suffixed files, additive, never overwriting the
+    primary artifacts."""
+    if horizon_days == DEFAULT_HORIZON_DAYS:
+        return ARTIFACT_DIR / "sector_prediction_model.joblib", ARTIFACT_DIR / "sector_prediction_model_report.json"
+    return (
+        ARTIFACT_DIR / f"sector_prediction_model_{horizon_days}d.joblib",
+        ARTIFACT_DIR / f"sector_prediction_model_{horizon_days}d_report.json",
+    )
+
+
+def evaluate(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON_DAYS) -> dict:
     """Purged, embargoed walk-forward evaluation — same discipline as every
     other phase. Returns honest OOS metrics, never fit-then-report-in-sample."""
-    df, extra_cols = _build_dataset()
+    df, extra_cols = _build_dataset(horizon_days=horizon_days)
     feature_cols = _feature_set(extra_cols)
     data = df.dropna(subset=[*feature_cols, "is_top_k"]).reset_index(drop=True)
 
-    splits = purged_walk_forward_splits(data["date"], n_folds=4, embargo_days=EMBARGO_DAYS)
+    splits = purged_walk_forward_splits(data["date"], n_folds=4, embargo_days=horizon_days)
     fold_results = []
     for fold_i, (train_idx, test_idx) in enumerate(splits):
         X_train, X_test = data.loc[train_idx, feature_cols], data.loc[test_idx, feature_cols]
@@ -175,7 +201,8 @@ def evaluate(refresh: bool = False) -> dict:
     coin_flip_brier = round(base_rate * (1 - base_rate), 4)
 
     result = {
-        "target": f"top_{TOP_K}_of_13_sectors_by_20D_forward_return",
+        "target": f"top_{TOP_K}_of_13_sectors_by_{horizon_days}D_forward_return",
+        "horizon_days": horizon_days,
         "n_rows": len(data),
         "n_folds": len(fold_results),
         "folds": fold_results,
@@ -193,12 +220,15 @@ def evaluate(refresh: bool = False) -> dict:
             "genuine edge, regardless of how the AUC number looks in isolation."
         ),
     }
-    log_stat_experiment("sector_prediction_model_evaluation", "sector_prediction_model", {k: v for k, v in result.items() if k != "folds"})
+    log_stat_experiment(
+        "sector_prediction_model_evaluation" if horizon_days == DEFAULT_HORIZON_DAYS else f"sector_prediction_model_evaluation_{horizon_days}d",
+        "sector_prediction_model", {k: v for k, v in result.items() if k != "folds"},
+    )
     return result
 
 
-def train_and_save(refresh: bool = False) -> dict:
-    df, extra_cols = _build_dataset()
+def train_and_save(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON_DAYS) -> dict:
+    df, extra_cols = _build_dataset(horizon_days=horizon_days)
     feature_cols = _feature_set(extra_cols)
     data = df.dropna(subset=[*feature_cols, "is_top_k"]).reset_index(drop=True)
 
@@ -211,11 +241,12 @@ def train_and_save(refresh: bool = False) -> dict:
 
     import joblib
 
+    model_path, report_path = _artifact_paths(horizon_days)
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-    joblib.dump({"scaler": scaler, "hgb": hgb, "lr": lr, "feature_cols": feature_cols}, ARTIFACT_DIR / "sector_prediction_model.joblib")
+    joblib.dump({"scaler": scaler, "hgb": hgb, "lr": lr, "feature_cols": feature_cols, "horizon_days": horizon_days}, model_path)
 
-    evaluation = evaluate(refresh=refresh)
-    (ARTIFACT_DIR / "sector_prediction_model_report.json").write_text(json.dumps(evaluation, indent=2, default=str))
+    evaluation = evaluate(refresh=refresh, horizon_days=horizon_days)
+    report_path.write_text(json.dumps(evaluation, indent=2, default=str))
     return evaluation
 
 
@@ -257,16 +288,21 @@ def _live_breadth(sector: str, refresh: bool = False) -> dict:
     }
 
 
-def predict_next_move(refresh: bool = False) -> dict:
+def predict_next_move(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON_DAYS) -> dict:
     """Live prediction: calibrated P(top-3-of-13) for ALL 13 sectors right
     now, spanning the full US equity sector map — technology, semis,
     software, financials, healthcare, industrials, energy, consumer
     discretionary/staples, utilities, materials, communication services,
-    real estate. Not just semiconductors, and not a single point call."""
-    model_path = ARTIFACT_DIR / "sector_prediction_model.joblib"
-    report_path = ARTIFACT_DIR / "sector_prediction_model_report.json"
+    real estate. Not just semiconductors, and not a single point call.
+    horizon_days selects which trained artifact to load — DEFAULT_HORIZON_DAYS
+    (20D) is the original, most stress-tested target; SECONDARY_HORIZON_DAYS
+    (60D) is additive, per multi_horizon_research.py's finding that it's
+    genuinely stronger on both AUC and Rank IC, but not yet through the same
+    depth of adversarial/non-overlapping stress-testing as 20D."""
+    model_path, report_path = _artifact_paths(horizon_days)
     if not model_path.exists() or not report_path.exists():
-        return {"error": "no trained model on disk — run `python -m processing.ml.sector_prediction_model` first"}
+        train_cmd = "python -m processing.ml.sector_prediction_model" if horizon_days == DEFAULT_HORIZON_DAYS else f"python -c \"from processing.ml.sector_prediction_model import train_and_save; train_and_save(horizon_days={horizon_days})\""
+        return {"error": f"no trained {horizon_days}D model on disk — run `{train_cmd}` first"}
 
     import joblib
 

@@ -1,0 +1,45 @@
+{
+  "target": "top_3_of_13_sectors_by_60D_forward_return",
+  "horizon_days": 60,
+  "n_rows": 2561,
+  "n_folds": 3,
+  "folds": [
+    {
+      "fold": 0,
+      "n_train": 481,
+      "n_test": 640,
+      "test_start": "2023-07-13",
+      "test_end": "2024-07-03",
+      "auc_hgb": 0.6101,
+      "auc_ensemble": 0.5741,
+      "brier_ensemble": 0.1755
+    },
+    {
+      "fold": 1,
+      "n_train": 1118,
+      "n_test": 640,
+      "test_start": "2024-07-03",
+      "test_end": "2025-06-26",
+      "auc_hgb": 0.5541,
+      "auc_ensemble": 0.5924,
+      "brier_ensemble": 0.176
+    },
+    {
+      "fold": 2,
+      "n_train": 1755,
+      "n_test": 641,
+      "test_start": "2025-06-26",
+      "test_end": "2026-06-17",
+      "auc_hgb": 0.4764,
+      "auc_ensemble": 0.6539,
+      "brier_ensemble": 0.173
+    }
+  ],
+  "mean_oos_auc": 0.6068,
+  "mean_oos_brier": 0.1748,
+  "base_rate": 0.2308,
+  "coin_flip_brier_baseline": 0.1775,
+  "beats_coin_flip": true,
+  "status": "PASS",
+  "note": "base_rate (0.2308) is the unconditional probability any sector is top-3 of 13 on a given date (~TOP_K/13 by construction, not a finding). mean_oos_brier must beat coin_flip_brier_baseline (predicting base_rate for everyone, every time) to represent any real information \u2014 an AUC above 0.55 with a Brier score above the coin-flip baseline is NOT a genuine edge, regardless of how the AUC number looks in isolation."
+}

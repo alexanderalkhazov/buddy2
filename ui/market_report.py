@@ -1189,6 +1189,49 @@ def generate(refresh: bool = False) -> str:
             "under different selection logic to avoid the two silently disagreeing.*"
         )
 
+    # ---- 60-Day Outlook — secondary horizon, additive research finding ----
+    lines.append("\n## 60-Day Outlook (secondary horizon)")
+    lines.append(
+        "processing/ml/multi_horizon_research.py tested whether sector-rotation predictability differs by "
+        "horizon (1/5/20/60 trading days) and found 60D genuinely stronger than the 20D horizon above on "
+        "BOTH a classification re-run (AUC) and an independent Ridge regression re-run (Spearman rank IC) "
+        "— two different target formulations agreeing is a real, if still small-sample, signal. Shown here "
+        "as an ADDITIVE second opinion, not a replacement: 60D has NOT yet been through the same depth of "
+        "stress-testing (Phase 4/5-style adversarial/non-overlapping checks) as the 20D target, and no "
+        "candidate ranking, trade level, or backtest anywhere else in this report uses it — those all stay "
+        "on the more-validated 20D horizon."
+    )
+    try:
+        from processing.ml.sector_prediction_model import SECONDARY_HORIZON_DAYS
+
+        _rocket60 = predict_next_move(refresh=refresh, horizon_days=SECONDARY_HORIZON_DAYS)
+    except Exception as exc:
+        _rocket60 = {"error": str(exc)[:200]}
+
+    if _rocket60.get("error"):
+        lines.append(f"\nUnavailable this run: {_rocket60['error']}")
+    else:
+        _rel60 = _rocket60.get("model_oos_reliability", {})
+        lines.append("\n**60D model out-of-sample reliability (measured, not assumed)**")
+        lines += _kv_table(
+            [
+                ("mean_oos_auc", _fmt(_rel60.get("mean_oos_auc"))),
+                ("mean_oos_brier", _fmt(_rel60.get("mean_oos_brier"))),
+                ("coin_flip_brier_baseline", _fmt(_rel60.get("coin_flip_brier_baseline"))),
+                ("**status**", f"**{_rel60.get('status', 'n/a')}**"),
+            ]
+        )
+        lines.append("\n**Calibrated probability, ALL 13 sectors (top-3-of-13 by 60D forward return)**")
+        lines.append("| Sector | P(top-3, 60D) | Model Agreement | 20D Vol | 20D Momentum |")
+        lines.append("|---|---|---|---|---|")
+        for p in _rocket60.get("predictions_all_13_sectors", []):
+            if "error" in p:
+                continue
+            lines.append(
+                f"| {p['sector'].replace('_', ' ').title()} | {_fmt(p.get('p_top3_ensemble'))} | "
+                f"{_fmt(p.get('model_agreement'))} | {_fmt(p.get('realized_vol_20d'))}% | {_fmt(p.get('ret_20d'))}% |"
+            )
+
     # ---- Reliability & Limitations -----------------------------------------
     lines.append("\n## Reliability & Limitations")
     lines += _kv_table(

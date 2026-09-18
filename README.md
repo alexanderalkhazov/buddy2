@@ -157,6 +157,21 @@ ceiling** — comparable to or better than AUC ≈ 0.547 reported in the
 literature for a much larger-N, richer-feature single-stock XGBoost study.
 More model sophistication is more likely to buy overfitting than edge.
 
+**A second, longer horizon** (`processing/ml/multi_horizon_research.py`)
+tested whether predictability differs by horizon — reusing the exact same
+feature set and walk-forward machinery, at 1/5/20/60 trading days, with
+BOTH the classification target above and an independent Ridge-regression
+excess-return target (evaluated by Spearman rank IC). Both target types
+agree: 1D has no edge (AUC 0.53, IC -0.01), and predictability rises with
+horizon — **60D is genuinely stronger than 20D on both metrics** (AUC
+0.607 vs 0.590, IC 0.177 vs 0.104). Two independently-fit target
+formulations agreeing on the same horizon ranking is a meaningful cross-
+check. Added as an ADDITIVE second output (the report's own "60-Day
+Outlook" section) — not a replacement, since 60D hasn't yet been through
+the same depth of stress-testing (Phase 4/5-style adversarial/non-
+overlapping checks) as 20D, and no candidate ranking or trade level
+anywhere in the report uses it yet.
+
 That number is the product of five rounds of rigorous, leakage-tested
 research (`processing/ml/phase1..5_*.py`, `storage/models/*.json`,
 `storage/models/experiments.jsonl` — permanent, never overwritten) that
