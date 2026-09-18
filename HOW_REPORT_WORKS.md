@@ -38,9 +38,10 @@ utilities, materials, communication services, real estate):
    from `sector_prediction_model` (Step 5 below) — the one part of this
    system that's actually walk-forward validated.
 2. Take a live technical snapshot of the ticker itself: RSI, Stochastic,
-   ADX, ROC, Bollinger %B, MACD, CCI, Ichimoku cloud position — reduced to
-   one `technical_composite` score (0-100,
-   `processing/indicators.py:technical_composite_score`, 7 indicator
+   ADX, ROC, Bollinger %B, MACD, CCI, Ichimoku cloud position, Money Flow
+   Index, Aroon Oscillator, Keltner Channels — reduced to one
+   `technical_composite` score (0-100,
+   `processing/indicators.py:technical_composite_score`, 10 indicator
    families).
 3. `long_score` = the sector probability, nudged up/down by up to ±10%
    based on how far the ticker's own composite sits from neutral (50).
@@ -159,7 +160,7 @@ live-computed context, not a second backtested signal.
 Everything else the report has ever shown is still there, below the
 candidate sections, labeled **SUPPORTING DATA**:
 
-- **Market Regime** — SPY/QQQ trend vs. their own SMAs, the full 7-indicator
+- **Market Regime** — SPY/QQQ trend vs. their own SMAs, the full 10-indicator
   technical set per index, a **market_technical_composite** and
   **market_health** label (STRONG/CONSTRUCTIVE/WEAK/POOR — descriptive,
   not a forecast), VIX level, and overall risk-on/risk-off label.

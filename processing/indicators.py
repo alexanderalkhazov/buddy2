@@ -88,11 +88,6 @@ def bollinger_pct_b(close: pd.Series, upper: pd.Series, lower: pd.Series) -> pd.
     return (close - lower) / (upper - lower)
 
 
-def on_balance_volume(df: pd.DataFrame) -> pd.Series:
-    direction = df["close"].diff().apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
-    return (direction * df["volume"]).cumsum()
-
-
 def ichimoku(df: pd.DataFrame, tenkan_window: int = 9, kijun_window: int = 26, senkou_b_window: int = 52) -> pd.DataFrame:
     """Ichimoku Kinko Hyo (Ichimoku Cloud) — standard periods (9/26/52).
 
@@ -153,6 +148,58 @@ def cci(df: pd.DataFrame, window: int = 20) -> pd.Series:
     sma_tp = typical_price.rolling(window).mean()
     mean_dev = typical_price.rolling(window).apply(lambda x: (x - x.mean()).abs().mean(), raw=False)
     return (typical_price - sma_tp) / (0.015 * mean_dev)
+
+
+def money_flow_index(df: pd.DataFrame, window: int = 14) -> pd.Series:
+    """Money Flow Index — RSI's volume-weighted cousin, and the only oscillator
+    in this system that incorporates volume rather than price alone. Typical
+    price * volume is "money flow" for the bar; MFI is the RSI formula applied
+    to money flow instead of raw price change. Same 0-100 scale and >70/<30
+    overbought/oversold convention as RSI, but a strong RSI reading on THIN
+    volume reads very differently from the same RSI reading on HEAVY volume —
+    MFI is what actually tells the two apart. Backward-only (rolling sums of
+    already-elapsed bars), no lookahead."""
+    typical_price = (df["high"] + df["low"] + df["close"]) / 3
+    money_flow = typical_price * df["volume"]
+    direction = typical_price.diff()
+    positive_flow = money_flow.where(direction > 0, 0.0).rolling(window).sum()
+    negative_flow = money_flow.where(direction < 0, 0.0).rolling(window).sum()
+    money_ratio = positive_flow / negative_flow
+    return 100 - 100 / (1 + money_ratio)
+
+
+def aroon(df: pd.DataFrame, window: int = 25) -> pd.DataFrame:
+    """Aroon Up/Down/Oscillator — how many periods (as a % of the window)
+    since the most recent N-period high/low, NOT how far price has moved.
+    This is a genuinely distinct trend-strength family from ADX: ADX measures
+    the MAGNITUDE of directional movement, Aroon measures its RECENCY — a
+    stock making a new high every few days (Aroon Up near 100) can have a
+    completely different Aroon read than one that made one big move a month
+    ago and has drifted sideways since, even if both show similar ADX.
+    aroon_oscillator = aroon_up - aroon_down, ranging -100..+100."""
+    high, low = df["high"], df["low"]
+    periods_since_high = high.rolling(window + 1).apply(lambda x: window - x.argmax(), raw=True)
+    periods_since_low = low.rolling(window + 1).apply(lambda x: window - x.argmin(), raw=True)
+    aroon_up = 100 * (window - periods_since_high) / window
+    aroon_down = 100 * (window - periods_since_low) / window
+    return pd.DataFrame({"aroon_up": aroon_up, "aroon_down": aroon_down, "aroon_oscillator": aroon_up - aroon_down})
+
+
+def keltner_channels(df: pd.DataFrame, window: int = 20, atr_mult: float = 2.0) -> pd.DataFrame:
+    """Keltner Channels — a volatility band built on ATR around an EMA
+    midline, not Bollinger's standard deviation around an SMA. This is a
+    real, not cosmetic, difference: ATR is a range-based volatility measure
+    (insensitive to a single huge close-to-close jump the way std-dev isn't),
+    so Keltner and Bollinger can disagree meaningfully on how "extended" the
+    same move looks — the two together are more informative than either
+    alone. keltner_pctk mirrors bollinger_pct_b's 0=lower/1=upper convention
+    for direct comparison."""
+    mid = df["close"].ewm(span=window, adjust=False).mean()
+    atr_n = atr(df, window=window)
+    upper = mid + atr_mult * atr_n
+    lower = mid - atr_mult * atr_n
+    pctk = (df["close"] - lower) / (upper - lower)
+    return pd.DataFrame({"keltner_upper": upper, "keltner_mid": mid, "keltner_lower": lower, "keltner_pctk": pctk})
 
 
 def ichimoku_cloud_position(close: float, senkou_a: float | None, senkou_b: float | None) -> str:
@@ -228,10 +275,12 @@ def enrich(df: pd.DataFrame) -> pd.DataFrame:
     out = out.join(donchian(out))
     out["roc10"] = rate_of_change(close)
     out["bb_pctb"] = bollinger_pct_b(close, out["bb_upper"], out["bb_lower"])
-    out["obv"] = on_balance_volume(out)
     out = out.join(ichimoku(out))
     out = out.join(chandelier_exit(out))
     out["cci20"] = cci(out)
+    out["mfi14"] = money_flow_index(out)
+    out = out.join(aroon(out))
+    out = out.join(keltner_channels(out))
     out = out.join(tradability_stats(out))
     return out
 
@@ -284,6 +333,14 @@ class PriceSnapshot:
     avg_overnight_gap_pct: float | None = None
     gap_share_of_range: float | None = None
     efficiency_ratio: float | None = None
+    # Volume-weighted momentum (MFI), time-based trend (Aroon), and an
+    # ATR-based volatility band (Keltner) — three more genuinely distinct
+    # indicator families, not variations on ones already above.
+    mfi14: float | None = None
+    aroon_up: float | None = None
+    aroon_down: float | None = None
+    aroon_oscillator: float | None = None
+    keltner_pctk: float | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -302,11 +359,15 @@ def technical_composite_score(
     macd_hist: float | None,
     cci20: float | None = None,
     ichimoku_cloud: str | None = None,
+    mfi14: float | None = None,
+    aroon_oscillator: float | None = None,
+    keltner_pctk: float | None = None,
 ) -> float | None:
-    """A single 0-100 technical-strength read, built from up to SEVEN
-    distinct indicator families (momentum oscillator, stochastic, trend
-    strength, mean-reversion band position, rate-of-change, CCI, Ichimoku
-    cloud position) rather than one signal — this is deliberately not "RSI
+    """A single 0-100 technical-strength read, built from up to TEN distinct
+    indicator families (momentum oscillator, stochastic, trend strength,
+    mean-reversion band position, rate-of-change, CCI, Ichimoku cloud
+    position, volume-weighted momentum, time-based trend, and an ATR-based
+    volatility band) rather than one signal — this is deliberately not "RSI
     alone" or "trend alone." Each component is scored independently, then
     combined with fixed weights; missing components are excluded and the
     rest renormalized (never treated as 0 or a neutral 50, which would
@@ -320,10 +381,12 @@ def technical_composite_score(
     empirical question this function does not answer; see the ML/sector_prediction_model
     modules for the parts of this system that are actually walk-forward tested.
 
-    Weights: momentum(RSI) 20%, stochastic 15%, trend strength(ADX, direction
-    -agnostic — weighted by whether price is currently rising, via ROC) 15%,
-    Bollinger %B (mean-reversion position within the band) 15%, MACD
-    histogram sign 10%, CCI 15%, Ichimoku cloud position 10%.
+    Weights: momentum(RSI) 15%, stochastic 10%, trend strength(ADX, direction
+    -agnostic — weighted by whether price is currently rising, via ROC) 12%,
+    Bollinger %B (mean-reversion position within the band) 10%, MACD
+    histogram sign 8%, CCI 10%, Ichimoku cloud position 8%, Money Flow
+    Index (volume-weighted momentum) 10%, Aroon Oscillator (time-since-
+    extreme trend measure) 10%, Keltner %K (ATR-based band position) 7%.
     """
     components: dict[str, float] = {}
 
@@ -367,12 +430,30 @@ def technical_composite_score(
     if ichimoku_cloud is not None and ichimoku_cloud != "UNKNOWN":
         components["ichimoku_cloud"] = {"above_cloud": 70.0, "in_cloud": 50.0, "below_cloud": 30.0}.get(ichimoku_cloud, 50.0)
 
+    if mfi14 is not None:
+        # Same 0-100 scale/overbought-oversold convention as RSI, but
+        # volume-weighted — a genuinely distinct read, not RSI twice.
+        components["mfi"] = _clip(50 + (mfi14 - 50) * 1.0, 0, 100)
+
+    if aroon_oscillator is not None:
+        # -100..+100, already centered — a strong positive reading means a
+        # new high happened very recently (Aroon Up near 100, Aroon Down
+        # near 0), which is a RECENCY read, not a magnitude read like ADX.
+        components["aroon"] = _clip(50 + aroon_oscillator / 2, 0, 100)
+
+    if keltner_pctk is not None:
+        # Same 0=lower/1=upper band-position convention as Bollinger %B, but
+        # against an ATR-based band instead of a std-dev based one — the two
+        # can and do disagree on how extended the same move looks.
+        components["keltner"] = _clip(keltner_pctk * 100, 0, 100)
+
     if not components:
         return None
 
     weights = {
-        "momentum": 0.20, "stochastic": 0.15, "trend_strength_directional": 0.15,
-        "band_position": 0.15, "macd_sign": 0.10, "cci": 0.15, "ichimoku_cloud": 0.10,
+        "momentum": 0.15, "stochastic": 0.10, "trend_strength_directional": 0.12,
+        "band_position": 0.10, "macd_sign": 0.08, "cci": 0.10, "ichimoku_cloud": 0.08,
+        "mfi": 0.10, "aroon": 0.10, "keltner": 0.07,
     }
     weight_sum = sum(weights[k] for k in components)
     return round(sum(weights[k] * v for k, v in components.items()) / weight_sum, 2)
@@ -449,6 +530,11 @@ def snapshot(ticker: str, df: pd.DataFrame) -> PriceSnapshot:
         avg_overnight_gap_pct=_f(row["avg_overnight_gap_pct"]),
         gap_share_of_range=_f(row["gap_share_of_range"]),
         efficiency_ratio=_f(row["efficiency_ratio"]),
+        mfi14=_f(row["mfi14"]),
+        aroon_up=_f(row["aroon_up"]),
+        aroon_down=_f(row["aroon_down"]),
+        aroon_oscillator=_f(row["aroon_oscillator"]),
+        keltner_pctk=_f(row["keltner_pctk"]),
         technical_composite=technical_composite_score(
             rsi14=_f(row["rsi14"]),
             stoch_k=_f(row["stoch_k"]),
@@ -458,5 +544,8 @@ def snapshot(ticker: str, df: pd.DataFrame) -> PriceSnapshot:
             macd_hist=_f(row["hist"]),
             cci20=_f(row["cci20"]),
             ichimoku_cloud=ichimoku_cloud_position(last, _f(row["ichimoku_senkou_a"]), _f(row["ichimoku_senkou_b"])),
+            mfi14=_f(row["mfi14"]),
+            aroon_oscillator=_f(row["aroon_oscillator"]),
+            keltner_pctk=_f(row["keltner_pctk"]),
         ),
     )

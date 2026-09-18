@@ -42,10 +42,11 @@ That's the whole CLI — one command, no arguments needed.
 2. **Why / When / How, per candidate** — for every one of the 10
    candidates:
    - **HOW** — a real entry/stop/take-profit (ATR-based).
-   - **WHY (indicators)** — all 7 technical indicator families (RSI,
-     Stochastic, ADX/ROC, Bollinger %B, MACD, CCI, Ichimoku Cloud) stated
-     honestly, including when one *conflicts* with the candidate's
-     direction — never cherry-picked to look one-sided.
+   - **WHY (indicators)** — all 10 technical indicator families (RSI,
+     Stochastic, ADX/ROC, Bollinger %B, MACD, CCI, Ichimoku Cloud, Money
+     Flow Index, Aroon Oscillator, Keltner Channels) stated honestly,
+     including when one *conflicts* with the candidate's direction — never
+     cherry-picked to look one-sided.
    - **WHY (news)** — that ticker's own real, recent headline: title,
      source, date, sentiment, a direct source link, and an explicit
      SUPPORTS / CONFLICTS WITH / NEUTRAL call against the direction.
@@ -71,7 +72,7 @@ That's the whole CLI — one command, no arguments needed.
      breath: this system holds no intraday data and has never tested
      anything at an intraday horizon, so a pass means day traders **could**
      work the stock, never that the system thinks you should.
-3. **Supporting data** — Market Regime (index trend, VIX, a 7-indicator
+3. **Supporting data** — Market Regime (index trend, VIX, a 10-indicator
    technical composite, a plain market-health label), Macro Context
    (Treasury yields, FRED CPI/GDP/unemployment + daily credit spreads,
    market breadth, Polymarket odds), a Market News Digest, the full

@@ -178,6 +178,26 @@ def _indicator_reasons(row: dict, direction: str) -> list[str]:
         else:
             reasons.append("Ichimoku: price is in the cloud — no clear trend signal either way")
 
+    mfi = row.get("mfi14")
+    if mfi is not None:
+        if mfi > 80:
+            reasons.append(f"MFI14 {mfi:.1f} — strong volume-weighted overbought reading" + (", confirms upward pressure but extended" if bullish else " — supports a mean-reversion short case"))
+        elif mfi < 20:
+            reasons.append(f"MFI14 {mfi:.1f} — strong volume-weighted oversold reading" + (" — supports a mean-reversion long case" if bullish else ", confirms downward pressure but extended"))
+
+    aroon_osc = row.get("aroon_oscillator")
+    if aroon_osc is not None and abs(aroon_osc) >= 50:
+        aroon_bullish = aroon_osc > 0
+        agrees = aroon_bullish == bullish
+        reasons.append(f"Aroon Oscillator {aroon_osc:+.0f} — a recent new {'high' if aroon_bullish else 'low'} (recency, not magnitude, of the extreme) — {'confirms' if agrees else 'CONFLICTS WITH'} the {direction} direction")
+
+    keltner = row.get("keltner_pctk")
+    if keltner is not None:
+        if keltner >= 1.0:
+            reasons.append(f"Keltner %K {keltner:.2f} — price above the ATR-based upper band" + (", confirms a real breakout (not just a std-dev outlier)" if bullish else " — an extended move against a short thesis"))
+        elif keltner <= 0.0:
+            reasons.append(f"Keltner %K {keltner:.2f} — price below the ATR-based lower band" + (" — an extended move against a long thesis" if bullish else ", confirms a real breakdown (not just a std-dev outlier)"))
+
     return reasons
 
 
@@ -246,6 +266,30 @@ def _indicator_agreement_counts(row: dict, direction: str) -> tuple[int, int]:
         agrees = (cloud == "above_cloud") == bullish
         confirm += 1 if agrees else 0
         conflict += 0 if agrees else 1
+
+    mfi = row.get("mfi14")
+    if mfi is not None:
+        if mfi > 80:
+            confirm += 1 if bullish else 0
+            conflict += 1 if not bullish else 0
+        elif mfi < 20:
+            confirm += 1 if not bullish else 0
+            conflict += 1 if bullish else 0
+
+    aroon_osc = row.get("aroon_oscillator")
+    if aroon_osc is not None and abs(aroon_osc) >= 50:
+        agrees = (aroon_osc > 0) == bullish
+        confirm += 1 if agrees else 0
+        conflict += 0 if agrees else 1
+
+    keltner = row.get("keltner_pctk")
+    if keltner is not None:
+        if keltner >= 1.0:
+            confirm += 1 if bullish else 0
+            conflict += 1 if not bullish else 0
+        elif keltner <= 0.0:
+            confirm += 1 if not bullish else 0
+            conflict += 1 if bullish else 0
 
     return confirm, conflict
 
@@ -360,6 +404,9 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 5) -> dict:
                     "macd_hist": s.macd_hist,
                     "cci20": s.cci20,
                     "ichimoku_cloud_position": s.ichimoku_cloud_position,
+                    "mfi14": s.mfi14,
+                    "aroon_oscillator": s.aroon_oscillator,
+                    "keltner_pctk": s.keltner_pctk,
                     "technical_composite": tc,
                     "trend": s.trend,
                     "trade_style": scoring.trade_style_fit(
@@ -501,9 +548,10 @@ def generate(refresh: bool = False) -> str:
             "\n*Entry/Stop/TP1 are ATR-based arithmetic (2.0x ATR stop, 1.5R first target) — a common "
             "convention, NOT calibrated to each ticker's own historical behavior, and NOT a position "
             "size (no account size is known here). long_score = sector's calibrated P(top-3-of-13 by "
-            "20D return), nudged up to +/-10% by the ticker's OWN technical_composite (0-100, seven "
+            "20D return), nudged up to +/-10% by the ticker's OWN technical_composite (0-100, ten "
             "indicator families: RSI momentum, Stochastic, ADX trend-strength signed by ROC direction, "
-            "Bollinger %B band position, MACD histogram sign, CCI, Ichimoku cloud position — "
+            "Bollinger %B band position, MACD histogram sign, CCI, Ichimoku cloud position, Money Flow "
+            "Index, Aroon Oscillator, Keltner Channel position — "
             "processing/indicators.py:technical_composite_score). short_score mirrors this on the "
             "bearish side. Only the sector probability is walk-forward validated; the technical-"
             "composite nudge is an unvalidated tiebreaker among tickers in the same sector, not a "

@@ -100,6 +100,9 @@ def _technical_composite_asof(ticker: str, as_of: pd.Timestamp) -> tuple[float |
         macd_hist=None if pd.isna(row.get("hist")) else float(row["hist"]),
         cci20=None if pd.isna(row.get("cci20")) else float(row["cci20"]),
         ichimoku_cloud=cloud,
+        mfi14=None if pd.isna(row.get("mfi14")) else float(row["mfi14"]),
+        aroon_oscillator=None if pd.isna(row.get("aroon_oscillator")) else float(row["aroon_oscillator"]),
+        keltner_pctk=None if pd.isna(row.get("keltner_pctk")) else float(row["keltner_pctk"]),
     )
     atr14 = None if pd.isna(row.get("atr14")) else float(row["atr14"])
     return tc, close, atr14

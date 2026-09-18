@@ -111,8 +111,9 @@ def market_regime() -> dict:
         "market_health_note": (
             "market_technical_composite = the average of SPY's and QQQ's technical_composite scores "
             "(processing/indicators.py:technical_composite_score — a 0-100 blend of RSI momentum, "
-            "Stochastic, ADX trend-strength signed by ROC direction, Bollinger %B band position, and "
-            "MACD histogram sign; 5 distinct indicator families, not one signal). This is a DESCRIPTIVE "
+            "Stochastic, ADX trend-strength signed by ROC direction, Bollinger %B band position, MACD "
+            "histogram sign, CCI, Ichimoku cloud position, Money Flow Index, Aroon Oscillator, and "
+            "Keltner Channel position; 10 distinct indicator families, not one signal). This is a DESCRIPTIVE "
             "read of current technical conditions, not a validated predictor of forward returns — "
             "whether STRONG technical readings actually precede good forward performance is exactly "
             "the question the walk-forward-tested sector_prediction_model/Phase 1-5 research answers, not this "
