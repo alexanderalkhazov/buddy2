@@ -13,23 +13,95 @@ from datetime import datetime, timezone
 
 import config
 
+# Curated from wire-style headline words plus a hand-picked subset of the
+# Loughran-McDonald financial sentiment dictionary (sraf.nd.edu) — the
+# standard finance-specific lexicon, chosen over generic English sentiment
+# lists because everyday-negative words like "liability"/"tax"/"cost" are
+# neutral/descriptive in financial text, and everyday-neutral words like
+# "impairment"/"writedown" carry real financial sentiment. Deliberately a
+# curated ~40-60 word subset, not the full 86k-word LM list — LM is built
+# from formal 10-K filing prose, and dropping the whole dictionary in
+# unfiltered would add filing-language noise that dominates a 10-word
+# headline on a single incidental match.
+#
+# "record" is deliberately EXCLUDED even though it's common in headlines:
+# it's genuinely polysemous with opposite meanings ("record profit" vs
+# "record losses"/"record layoffs") and a bag-of-words lexicon has no way
+# to tell which — including it with either polarity adds noise, not
+# signal, so it contributes to neither list.
 POSITIVE = {
-    "beat", "beats", "surge", "surges", "rally", "rallies", "record", "upgrade",
-    "upgrades", "growth", "profit", "gains", "gain", "outperform", "strong", "raise",
-    "raises", "bullish", "jumps", "soars", "tops", "wins", "approval",
+    "beat", "beats", "surge", "surges", "rally", "rallies", "upgrade",
+    "upgrades", "growth", "profit", "gains", "gain", "outperform", "outperforms",
+    "outperformance", "strong", "raise", "raises", "bullish", "jumps", "soars",
+    "tops", "wins", "approval", "exceed", "exceeds", "exceeded", "surpasses", "surpassed",
+    "robust", "resilient", "resilience", "expansion", "expands", "momentum",
+    "breakthrough", "milestone", "tailwind", "upside", "accretive", "accelerates",
+    "outpaces",
 }
 NEGATIVE = {
     "miss", "misses", "plunge", "plunges", "fall", "falls", "drop", "drops",
     "downgrade", "downgrades", "loss", "losses", "weak", "cut", "cuts", "bearish",
     "slump", "lawsuit", "probe", "recall", "warns", "warning", "slides", "sinks",
+    "impairment", "writedown", "restructuring", "layoffs", "default", "delinquent",
+    "bankruptcy", "insolvency", "breach", "violation", "penalty", "fraud",
+    "misconduct", "investigation", "subpoena", "indictment", "litigation",
+    "deficit", "shortfall", "downturn", "contraction", "terminate", "suspend",
+    "halt", "delist", "sued", "fined", "scandal",
 }
 
 _WORD = re.compile(r"[a-z']+")
 
+# VADER-style negation (Hutto & Gilbert 2014), adapted for headline-length
+# text: the canonical VADER negation window is 3 tokens, but for short,
+# dense headlines a narrower 2-token window is more robust (a wider window
+# risks a negator from an unrelated clause flipping the wrong word) —
+# checked against each sentiment word's IMMEDIATELY preceding tokens, not
+# the whole headline.
+_NEGATION_CUES = {
+    "no", "not", "never", "none", "nobody", "nothing", "nowhere", "neither", "nor",
+    "cannot", "cant", "can't", "dont", "don't", "doesnt", "doesn't", "didnt", "didn't",
+    "isnt", "isn't", "wasnt", "wasn't", "werent", "weren't", "hasnt", "hasn't",
+    "havent", "haven't", "hadnt", "hadn't", "wont", "won't", "wouldnt", "wouldn't",
+    "shouldnt", "shouldn't", "couldnt", "couldn't", "mightnt", "mustnt", "neednt",
+    "without", "rarely", "seldom", "despite",
+}
+_NEGATION_WINDOW = 2
+
+# Multi-word phrases extremely common in earnings headlines that a single-
+# token negation window can't catch on its own — but these split into two
+# genuinely different kinds, and conflating them was a real bug caught in
+# testing:
+#   - NEGATORS ("fails to beat", "unable to exceed") negate a FOLLOWING
+#     positive claim — normalized to "not" so they fold into the existing
+#     window-check mechanism ("not" is already in _NEGATION_CUES).
+#   - INHERENTLY-NEGATIVE phrases ("falls short of expectations", "far
+#     from profitable") ARE the negative signal themselves, often with NO
+#     sentiment word following at all ("short of expectations" has none) —
+#     normalizing these to "not" would silently produce a neutral score
+#     instead of negative. Normalized instead to "misses" (already
+#     NEGATIVE) so they contribute polarity directly.
+_NEGATION_PHRASES = ("fails to", "failed to", "unable to")
+_INHERENTLY_NEGATIVE_PHRASES = ("falls short of", "short of", "far from")
+
 
 def _lexicon_sentiment(text: str) -> str:
-    words = set(_WORD.findall(text.lower()))
-    score = len(words & POSITIVE) - len(words & NEGATIVE)
+    text = text.lower()
+    for phrase in _NEGATION_PHRASES:
+        text = text.replace(phrase, "not")
+    for phrase in _INHERENTLY_NEGATIVE_PHRASES:
+        text = text.replace(phrase, "misses")
+    tokens = _WORD.findall(text)
+
+    score = 0
+    for i, tok in enumerate(tokens):
+        polarity = 1 if tok in POSITIVE else (-1 if tok in NEGATIVE else 0)
+        if polarity == 0:
+            continue
+        window = tokens[max(0, i - _NEGATION_WINDOW):i]
+        if any(w in _NEGATION_CUES for w in window):
+            polarity = -polarity
+        score += polarity
+
     if score > 0:
         return "positive"
     if score < 0:
