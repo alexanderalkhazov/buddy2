@@ -35,6 +35,14 @@ SERIES = {
 }
 
 
+def fetch_series_history(series_id: str) -> list[tuple[str, float]]:
+    """Full (date, value) history for a FRED series — the same CSV endpoint
+    `economic_indicators()` uses, exposed for callers (e.g. the ML pipeline's
+    macro-regime features) that need the whole time series, not just the
+    latest point."""
+    return _fetch_series(series_id)
+
+
 def _fetch_series(series_id: str) -> list[tuple[str, float]]:
     resp = requests.get(FRED_CSV_URL, params={"id": series_id}, timeout=15)
     resp.raise_for_status()

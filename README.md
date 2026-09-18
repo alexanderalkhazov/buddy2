@@ -76,12 +76,21 @@ That's the whole CLI — one command, no arguments needed.
 A calibrated gradient-boosting + logistic-regression ensemble predicting
 each sector's probability of landing in the top-3-of-13 by 20-day forward
 return, evaluated with purged, embargoed, walk-forward validation (never
-trained-then-graded on the same data). Measured result: **AUC ≈ 0.58,
+trained-then-graded on the same data). Measured result: **AUC ≈ 0.59,
 Brier ≈ 0.176 vs. a 0.178 coin-flip baseline** — a real but modest edge,
-reported as such. (Revised down from an earlier ≈0.60 after fixing a walk-
-forward embargo unit bug — calendar days vs. the trading-day label horizon —
-that had let a small amount of leakage into the measurement; see git history
-for the fix.)
+reported as such.
+
+That number moved twice in this project's history, both times for reasons
+worth stating plainly rather than burying: it was ≈0.60 before a walk-
+forward embargo unit bug (calendar days applied against a trading-day label
+horizon) let a small amount of leakage into the measurement — fixing that
+took it down to ≈0.58. It's back up to ≈0.59 after adding 4 real market-
+regime features (trend/vol regime, VIX 5-day change, the 10Y-2Y yield curve
+slope) — chosen by walk-forward ablation from 8 candidates, keeping only the
+ones that actually moved OOS AUC/Brier in the right direction (see
+`processing/ml/sector_dataset.py:REGIME_FEATURE_COLUMNS` for the full
+ablation result and what was dropped, including why VIX level, realized
+vol, and credit spreads didn't make the cut).
 
 That number is the product of five rounds of rigorous, leakage-tested
 research (`processing/ml/phase1..5_*.py`, `storage/models/*.json`,

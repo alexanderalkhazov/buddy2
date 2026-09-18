@@ -38,8 +38,12 @@ from sklearn.preprocessing import StandardScaler
 
 from processing.ml.dataset_v2 import build_dataset_v2
 from processing.ml.features import FEATURE_COLUMNS, compute_features
+from processing.ml.macro_features import fetch_macro_history
+from processing.ml.regime import compute_regime_features
 from processing.ml.registry import ARTIFACT_DIR, log_stat_experiment
-from processing.ml.sector_dataset import build_sector_dataset
+from processing.ml.sector_dataset import (
+    REGIME_FEATURE_COLUMNS, _TREND_REGIME_CODE, _VOL_REGIME_CODE, build_sector_dataset,
+)
 from processing.ml.sector_index import build_sector_index
 from processing.ml.train import purged_walk_forward_splits
 from processing.ml.universe import BENCHMARK, EXPANDED_UNIVERSE_V2
@@ -89,7 +93,7 @@ def _build_dataset() -> pd.DataFrame:
 
 def _feature_set(extra_cols: list[str]) -> list[str]:
     breadth_cols = ["breadth_pct_above_sma50", "breadth_pct_above_sma200", "breadth_pct_positive_20d", "breadth_median_rsi"]
-    return [c for c in (*FEATURE_COLUMNS, *breadth_cols, *extra_cols)]
+    return [c for c in (*FEATURE_COLUMNS, *breadth_cols, *REGIME_FEATURE_COLUMNS, *extra_cols)]
 
 
 def evaluate(refresh: bool = False) -> dict:
@@ -264,6 +268,26 @@ def predict_next_move(refresh: bool = False) -> dict:
     if live.empty:
         return {"error": "no live sector data available this run"}
 
+    # Market-wide regime/macro state as of the latest bar — the SAME value
+    # for every sector on this date (this is deliberately not a per-sector
+    # feature, unlike breadth), matching how it's joined into training data.
+    bench_regime = compute_regime_features(bench_df)
+    trend_label, vol_label, spy_vol = None, None, None
+    if not bench_regime.dropna(subset=["trend_regime"]).empty:
+        last_regime = bench_regime.dropna(subset=["trend_regime"]).iloc[-1]
+        trend_label, vol_label, spy_vol = last_regime["trend_regime"], last_regime["vol_regime"], last_regime["spy_realized_vol_20d"]
+    live["trend_regime_bull"] = _TREND_REGIME_CODE.get(trend_label)
+    live["vol_regime_ordinal"] = _VOL_REGIME_CODE.get(vol_label)
+    live["spy_realized_vol_20d"] = spy_vol
+
+    try:
+        macro = fetch_macro_history(refresh=refresh)
+        last_macro = macro.iloc[-1] if not macro.empty else None
+    except Exception:
+        last_macro = None
+    for col in ("vix_level", "vix_chg_5d", "yield_curve_10y2y", "credit_spread_hy", "credit_spread_hy_chg_5d"):
+        live[col] = last_macro.get(col) if last_macro is not None else None
+
     live["vol_z"] = (live["realized_vol_20d"] - live["realized_vol_20d"].mean()) / (live["realized_vol_20d"].std() or 1)
     live["mom_z"] = (live["ret_20d"] - live["ret_20d"].mean()) / (live["ret_20d"].std() or 1)
     live["vol_x_mom"] = live["vol_z"] * live["mom_z"]
@@ -277,6 +301,17 @@ def predict_next_move(refresh: bool = False) -> dict:
     missing_cols = [c for c in feature_cols if c not in live.columns]
     for c in missing_cols:
         live[c] = 0.0
+
+    # Macro/regime features are shared market-wide values, not per-sector, so
+    # a fetch failure leaves them NaN for every row rather than missing
+    # entirely (missing_cols above wouldn't catch that) — StandardScaler.
+    # transform() would propagate NaN straight into a NaN prediction with no
+    # error. Fall back to the scaler's own training-time mean (index-aligned
+    # with feature_cols) so a live data outage degrades gracefully to "assume
+    # an average regime" instead of silently corrupting every prediction.
+    if live[feature_cols].isna().any().any():
+        train_means = pd.Series(scaler.mean_, index=feature_cols)
+        live[feature_cols] = live[feature_cols].fillna(train_means)
 
     X_live = live[feature_cols]
     Xs_live = scaler.transform(X_live)

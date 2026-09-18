@@ -148,14 +148,34 @@ The one validated component. Trains a calibrated gradient-boosting +
 logistic-regression ensemble to predict each sector's probability of
 landing in the top-3-of-13 by 20-day forward return, using purged,
 embargoed, walk-forward validation (never trained-then-graded on the same
-data). Measured result: AUC ≈ 0.58, Brier ≈ 0.176 vs. a 0.178 coin-flip
-baseline — a real but modest edge, reported as such, not oversold. (This
-was ≈0.60 before a walk-forward embargo unit bug — the embargo was applied
-in calendar days against a trading-day label horizon, undercounting the
-required gap — was found and fixed, along with a sector-index construction
-bug that let one member's incidental pre-common-date drift bias the whole
-sector composite. Both revised the metric down, not up — a good sign the
-fix removed real leakage rather than just moving noise around.)
+data). Measured result: AUC ≈ 0.59, Brier ≈ 0.176 vs. a 0.178 coin-flip
+baseline — a real but modest edge, reported as such, not oversold.
+
+Features: the base price/technical set (features.py), sector breadth (%
+of member tickers above their own SMA50/200, % with positive 20D return,
+median RSI — sector_dataset.py), the vol×momentum interaction terms Phase
+5's decomposition motivated, and 4 market-regime features (trend regime,
+vol regime, VIX 5-day change, 10Y-2Y yield curve slope —
+processing/ml/regime.py + macro_features.py). That last group was chosen
+by walk-forward ablation from 8 candidates: each tested alone and in
+combination against the base feature set, keeping only what actually
+improved OOS AUC/Brier. VIX *level*, 20D realized SPY vol, and both
+credit-spread features were tried and DROPPED — each measurably hurt OOS
+performance alone, and the credit-spread series turned out to have only
+~3 years of history on this project's no-API-key FRED endpoint (vs. 50+
+for the yield-curve series), silently cutting ~30% of training rows when
+included. See `sector_dataset.py:REGIME_FEATURE_COLUMNS` for the kept/
+dropped list and reasoning.
+
+This metric has moved twice in this project's history: ≈0.60 -> ≈0.58
+after fixing a walk-forward embargo unit bug (embargo applied in calendar
+days against a trading-day label horizon, undercounting the required gap)
+and a sector-index construction bug (one member ticker's pre-common-date
+drift biasing the whole composite) — both moved it DOWN, consistent with
+removing real leakage rather than just adding noise. Then ≈0.58 -> ≈0.59
+after adding the regime features above — a genuine, ablation-tested
+improvement, not just a change.
+
 Retrain it directly with `python -m processing.ml.sector_prediction_model`.
 
 The deeper research behind it — five phases of deliberately trying to
