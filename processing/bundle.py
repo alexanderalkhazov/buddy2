@@ -67,6 +67,14 @@ def build(
             "adx14": snap.adx14,
             "roc10": snap.roc10,
             "technical_composite": snap.technical_composite,
+            "ichimoku_tenkan": snap.ichimoku_tenkan,
+            "ichimoku_kijun": snap.ichimoku_kijun,
+            "ichimoku_senkou_a": snap.ichimoku_senkou_a,
+            "ichimoku_senkou_b": snap.ichimoku_senkou_b,
+            "ichimoku_cloud_position": snap.ichimoku_cloud_position,
+            "chandelier_long_stop": snap.chandelier_long_stop,
+            "chandelier_short_stop": snap.chandelier_short_stop,
+            "cci20": snap.cci20,
         },
     }
 

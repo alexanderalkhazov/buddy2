@@ -198,16 +198,24 @@ def generate(
             ("ATR(14)", _fmt(price["atr14"])),
             ("Volume vs 30d avg", _fmt(price["vol_vs_30d_avg"], "x")),
             ("Trend", price["trend"]),
+            ("CCI(20)", _fmt(price.get("cci20"))),
+            ("Ichimoku cloud position", price.get("ichimoku_cloud_position", "UNKNOWN")),
+            ("Ichimoku Tenkan / Kijun", f"{_fmt(price.get('ichimoku_tenkan'))} / {_fmt(price.get('ichimoku_kijun'))}"),
+            ("Chandelier stop (long / short)", f"{_fmt(price.get('chandelier_long_stop'))} / {_fmt(price.get('chandelier_short_stop'))}"),
             ("**Technical composite (0-100)**", f"**{_fmt(price.get('technical_composite'))}**"),
             ("52-week range", f"{_fmt(fund.get('fifty_two_week_low'))} – {_fmt(fund.get('fifty_two_week_high'))}"),
             ("Market cap", _fmt(fund.get("market_cap"))),
         ]
     )
     lines.append(
-        "\n*Technical composite blends 5 distinct indicator families (RSI momentum, Stochastic, "
-        "ADX trend-strength signed by ROC direction, Bollinger %B band position, MACD histogram sign — "
-        "processing/indicators.py:technical_composite_score) into one 0-100 read of the CURRENT technical "
-        "state. It is descriptive, not predictive — it does not carry the walk-forward-tested status of "
+        "\n*Technical composite blends 7 distinct indicator families (RSI momentum, Stochastic, "
+        "ADX trend-strength signed by ROC direction, Bollinger %B band position, MACD histogram sign, "
+        "CCI, Ichimoku cloud position — processing/indicators.py:technical_composite_score) into one "
+        "0-100 read of the CURRENT technical state. Chandelier stop (Charles Le Beau, 22-period/3xATR) "
+        "is a volatility-adaptive TRAILING stop anchored off the recent high/low — a different "
+        "construction than the entry-anchored ATR stop in Trade Levels below; shown as an alternative "
+        "reference, not a second required stop. It is all descriptive, not predictive — none of it "
+        "carries the walk-forward-tested status of "
         "the ML Prediction Engine or Baseline Score below.*"
     )
 
@@ -701,9 +709,17 @@ def generate(
                 (f"Take-profit 2 ({tl['take_profit_2_r_multiple']}R)", _fmt(tl["take_profit_2"])),
                 ("Risk/reward to TP1", f"{tl['risk_reward_ratio_tp1']}:1"),
                 ("Earnings proximity", f"{ep.get('severity', 'UNKNOWN')} ({ep.get('calendar_days_until_earnings')} calendar day(s))" if ep.get("calendar_days_until_earnings") is not None else "UNKNOWN"),
+                ("Alternative stop — Chandelier Exit (22p/3xATR, trailing)", _fmt(price.get("chandelier_long_stop"))),
+                ("Alternative stop — Ichimoku Kijun-sen (base line)", _fmt(price.get("ichimoku_kijun"))),
             ]
         )
         lines.append(f"\n**Invalidation:** {tl['invalidation']}")
+        lines.append(
+            "\n*The two alternative stops above are different, well-known conventions, not additional "
+            "required stops: Chandelier Exit trails the recent high, tightening/widening with volatility; "
+            "Ichimoku Kijun-sen is a classic trend-following exit level. Pick one convention and use it "
+            "consistently — don't average multiple stop conventions together.*"
+        )
         lines.append(f"\n*{tl['note']}*")
 
         ts = scoring.trade_levels(price["last"], price["atr14"], as_of=fresh["as_of"], next_earnings_date=fund.get("next_earnings_date"), direction="short")
@@ -724,6 +740,8 @@ def generate(
                     (f"Take-profit 1 ({ts['take_profit_1_r_multiple']}R)", _fmt(ts["take_profit_1"])),
                     (f"Take-profit 2 ({ts['take_profit_2_r_multiple']}R)", _fmt(ts["take_profit_2"])),
                     ("Risk/reward to TP1", f"{ts['risk_reward_ratio_tp1']}:1"),
+                    ("Alternative stop — Chandelier Exit (22p/3xATR, trailing)", _fmt(price.get("chandelier_short_stop"))),
+                    ("Alternative stop — Ichimoku Kijun-sen (base line)", _fmt(price.get("ichimoku_kijun"))),
                 ]
             )
             lines.append(f"\n**Invalidation:** {ts['invalidation']}")

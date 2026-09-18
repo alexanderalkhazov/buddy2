@@ -22,7 +22,7 @@ import pandas as pd
 from data import macro as macro_mod_data
 from data import news
 from processing import macro as macro_mod
-from processing import news_proc, regime
+from processing import news_proc, regime, scoring
 from processing.indicators import snapshot as price_snapshot
 from processing.ml.features import FEATURE_COLUMNS, compute_features
 from processing.ml.registry import ARTIFACT_DIR
@@ -853,12 +853,16 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 10) -> dict:
     sectors' member tickers (~104 names) — no LLM, no interpretation step.
     composite score = the ticker's sector-level calibrated P(top-3) from
     rocket_science, nudged by the ticker's OWN technical_composite (RSI +
-    Stochastic + ADX/ROC-signed trend strength + Bollinger %B + MACD sign —
-    see processing/indicators.py:technical_composite_score, five distinct
-    indicator families, not one). Risk management (stops, sizing, entry
-    timing) is deliberately NOT included here — this is a ranked watchlist,
-    not a trade plan. Use `report TICKER` for actual trade levels on
-    anything that comes out of this list.
+    Stochastic + ADX/ROC-signed trend strength + Bollinger %B + MACD sign +
+    CCI + Ichimoku cloud position — see
+    processing/indicators.py:technical_composite_score, seven distinct
+    indicator families, not one). Each row also carries a hypothetical
+    entry/stop/TP1 (processing/scoring.py:trade_levels(), the same ATR-based
+    arithmetic as `report TICKER`'s Trade Levels section) — NOT a position
+    size, and not a claim these levels are calibrated to this specific
+    ticker's history; run `report TICKER` for the fuller trade-levels
+    picture (TP2, earnings-proximity warning, alternative stop
+    conventions) before acting on anything here.
 
     NEITHER the sector probability NOR the technical-composite nudge has
     been shown, on its own, to predict which INDIVIDUAL ticker within a
@@ -889,6 +893,10 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 10) -> dict:
             # short_score down, symmetric for a bearish composite.
             tc = s.technical_composite
             nudge = ((tc - 50) / 50) * 0.10 * p_top3 if tc is not None else 0.0
+
+            long_levels = scoring.trade_levels(s.last, s.atr14, direction="long") if s.atr14 else {"error": "no ATR"}
+            short_levels = scoring.trade_levels(s.last, s.atr14, direction="short") if s.atr14 else {"error": "no ATR"}
+
             rows.append(
                 {
                     "ticker": ticker,
@@ -904,6 +912,12 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 10) -> dict:
                     "trend": s.trend,
                     "long_score": round(p_top3 + nudge, 4),
                     "short_score": round((1 - p_top3) - nudge, 4),
+                    "long_entry": long_levels.get("entry"),
+                    "long_stop": long_levels.get("stop"),
+                    "long_tp1": long_levels.get("take_profit_1"),
+                    "short_entry": short_levels.get("entry"),
+                    "short_stop": short_levels.get("stop"),
+                    "short_tp1": short_levels.get("take_profit_1"),
                 }
             )
 
@@ -919,9 +933,11 @@ def generate(refresh: bool = False) -> str:
     lines.append(f"# Market Condition Report — generated {now}")
     lines.append(
         "\nDirect, deterministic predictions below — no LLM interpretation step. Every number is "
-        "fetched or computed by code. Risk management (stops, position sizing, entry timing) is "
-        "intentionally NOT included here — this ranks candidates, it does not size or time a trade. "
-        "Run `python main.py report TICKER` on anything below for actual entry/stop/target levels."
+        "fetched or computed by code. Each candidate includes a hypothetical entry/stop/TP1 (same "
+        "ATR-based arithmetic as `report TICKER`'s Trade Levels section) — NOT a position size, and "
+        "not calibrated to that specific ticker's own history. Run `python main.py report TICKER` on "
+        "anything below for the fuller picture (TP2, earnings-proximity warning, alternative stop "
+        "conventions, position sizing) before acting."
     )
 
     try:
@@ -940,29 +956,32 @@ def generate(refresh: bool = False) -> str:
         )
 
         lines.append("\n## TOP LONG CANDIDATES")
-        lines.append("| # | Ticker | Sector | P(sector top-3) | Last | Change % | RSI14 | Stoch %K | ADX14 | BB %B | Tech. Composite | Long Score |")
-        lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
+        lines.append("| # | Ticker | Sector | P(top-3) | Entry | Stop | TP1 | RSI14 | Tech. Composite | Long Score |")
+        lines.append("|---|---|---|---|---|---|---|---|---|---|")
         for i, r in enumerate(_pred["long"], 1):
             lines.append(
                 f"| {i} | {r['ticker']} | {r['sector'].replace('_', ' ').title()} | {_fmt(r['p_top3_sector'])} | "
-                f"{_fmt(r['last'])} | {_fmt(r['change_pct'])}% | {_fmt(r['rsi14'])} | {_fmt(r['stoch_k'])} | "
-                f"{_fmt(r['adx14'])} | {_fmt(r['bb_pctb'])} | {_fmt(r['technical_composite'])} | {_fmt(r['long_score'])} |"
+                f"{_fmt(r['long_entry'])} | {_fmt(r['long_stop'])} | {_fmt(r['long_tp1'])} | {_fmt(r['rsi14'])} | "
+                f"{_fmt(r['technical_composite'])} | {_fmt(r['long_score'])} |"
             )
 
         lines.append("\n## TOP SHORT CANDIDATES")
-        lines.append("| # | Ticker | Sector | P(sector top-3) | Last | Change % | RSI14 | Stoch %K | ADX14 | BB %B | Tech. Composite | Short Score |")
-        lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
+        lines.append("| # | Ticker | Sector | P(top-3) | Entry | Stop | TP1 | RSI14 | Tech. Composite | Short Score |")
+        lines.append("|---|---|---|---|---|---|---|---|---|---|")
         for i, r in enumerate(_pred["short"], 1):
             lines.append(
                 f"| {i} | {r['ticker']} | {r['sector'].replace('_', ' ').title()} | {_fmt(r['p_top3_sector'])} | "
-                f"{_fmt(r['last'])} | {_fmt(r['change_pct'])}% | {_fmt(r['rsi14'])} | {_fmt(r['stoch_k'])} | "
-                f"{_fmt(r['adx14'])} | {_fmt(r['bb_pctb'])} | {_fmt(r['technical_composite'])} | {_fmt(r['short_score'])} |"
+                f"{_fmt(r['short_entry'])} | {_fmt(r['short_stop'])} | {_fmt(r['short_tp1'])} | {_fmt(r['rsi14'])} | "
+                f"{_fmt(r['technical_composite'])} | {_fmt(r['short_score'])} |"
             )
 
         lines.append(
-            "\n*long_score = sector's calibrated P(top-3-of-13 by 20D return), nudged up to +/-10% by the "
-            "ticker's OWN technical_composite (0-100, five indicator families: RSI momentum, Stochastic, "
-            "ADX trend-strength signed by ROC direction, Bollinger %B band position, MACD histogram sign — "
+            "\n*Entry/Stop/TP1 are the same ATR-based arithmetic as `report TICKER`'s Trade Levels "
+            "(2.0x ATR stop, 1.5R first target) — a common convention, NOT calibrated to each ticker's "
+            "own historical behavior, and NOT a position size. long_score = sector's calibrated "
+            "P(top-3-of-13 by 20D return), nudged up to +/-10% by the ticker's OWN technical_composite "
+            "(0-100, seven indicator families: RSI momentum, Stochastic, ADX trend-strength signed by ROC "
+            "direction, Bollinger %B band position, MACD histogram sign, CCI, Ichimoku cloud position — "
             "processing/indicators.py:technical_composite_score). short_score mirrors this on the bearish "
             "side. Only the sector probability is walk-forward validated; the technical-composite nudge is "
             "an unvalidated tiebreaker among tickers in the same sector, not a second tested signal. These "

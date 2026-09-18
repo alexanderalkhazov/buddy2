@@ -93,6 +93,79 @@ def on_balance_volume(df: pd.DataFrame) -> pd.Series:
     return (direction * df["volume"]).cumsum()
 
 
+def ichimoku(df: pd.DataFrame, tenkan_window: int = 9, kijun_window: int = 26, senkou_b_window: int = 52) -> pd.DataFrame:
+    """Ichimoku Kinko Hyo (Ichimoku Cloud) — standard periods (9/26/52).
+
+    Tenkan-sen (conversion) and Kijun-sen (base) are simple midpoints of
+    their own trailing high/low window — no lookahead. Senkou Span A/B (the
+    cloud edges) are conventionally PLOTTED 26 periods ahead of the data
+    that produced them; implemented here as `.shift(kijun_window)` so that
+    row t's cloud value is exactly what was computed from data as of
+    t-26 — the real-world plotting convention, and still strictly
+    point-in-time (it uses only older data, never future data). Chikou
+    Span (the lagging span, close shifted BACKWARD) is a plotting/visual
+    convenience only — it is NOT included in any computed signal here,
+    since "shift close by -26" only makes sense for a chart, and including
+    it in a live snapshot would just be tomorrow's close under another
+    name if naively read as "current."
+    """
+    high, low, close = df["high"], df["low"], df["close"]
+    tenkan = (high.rolling(tenkan_window).max() + low.rolling(tenkan_window).min()) / 2
+    kijun = (high.rolling(kijun_window).max() + low.rolling(kijun_window).min()) / 2
+    senkou_a = ((tenkan + kijun) / 2).shift(kijun_window)
+    senkou_b = ((high.rolling(senkou_b_window).max() + low.rolling(senkou_b_window).min()) / 2).shift(kijun_window)
+    return pd.DataFrame(
+        {
+            "ichimoku_tenkan": tenkan,
+            "ichimoku_kijun": kijun,
+            "ichimoku_senkou_a": senkou_a,
+            "ichimoku_senkou_b": senkou_b,
+        }
+    )
+
+
+def chandelier_exit(df: pd.DataFrame, window: int = 22, mult: float = 3.0) -> pd.DataFrame:
+    """Chandelier Exit (Charles Le Beau) — a volatility-adaptive TRAILING STOP,
+    not a directional signal: tightens in calm markets, widens in volatile
+    ones. chandelier_long is the stop level for an existing/hypothetical
+    LONG position; chandelier_short mirrors it for a SHORT. Distinct from
+    the flat stop_multiplier*ATR stop in processing/scoring.py:trade_levels()
+    (which anchors off the ENTRY price) — this anchors off the highest high
+    (long) / lowest low (short) of the trailing window, the standard
+    professional convention for a trend-following trailing stop."""
+    high, low = df["high"], df["low"]
+    atr_n = atr(df, window=window)
+    return pd.DataFrame(
+        {
+            "chandelier_long_stop": high.rolling(window).max() - mult * atr_n,
+            "chandelier_short_stop": low.rolling(window).min() + mult * atr_n,
+        }
+    )
+
+
+def cci(df: pd.DataFrame, window: int = 20) -> pd.Series:
+    """Commodity Channel Index — deviation of the typical price from its own
+    moving average, scaled by mean absolute deviation (not RSI/Stochastic's
+    high-low-range normalization, so it's a genuinely distinct oscillator
+    family). >+100 = strong uptrend/overbought; <-100 = strong downtrend/
+    oversold."""
+    typical_price = (df["high"] + df["low"] + df["close"]) / 3
+    sma_tp = typical_price.rolling(window).mean()
+    mean_dev = typical_price.rolling(window).apply(lambda x: (x - x.mean()).abs().mean(), raw=False)
+    return (typical_price - sma_tp) / (0.015 * mean_dev)
+
+
+def ichimoku_cloud_position(close: float, senkou_a: float | None, senkou_b: float | None) -> str:
+    if senkou_a is None or senkou_b is None:
+        return "UNKNOWN"
+    cloud_top, cloud_bottom = max(senkou_a, senkou_b), min(senkou_a, senkou_b)
+    if close > cloud_top:
+        return "above_cloud"
+    if close < cloud_bottom:
+        return "below_cloud"
+    return "in_cloud"
+
+
 def enrich(df: pd.DataFrame) -> pd.DataFrame:
     """Attach all indicator columns to a copy of the OHLCV frame."""
     out = df.copy()
@@ -111,6 +184,9 @@ def enrich(df: pd.DataFrame) -> pd.DataFrame:
     out["roc10"] = rate_of_change(close)
     out["bb_pctb"] = bollinger_pct_b(close, out["bb_upper"], out["bb_lower"])
     out["obv"] = on_balance_volume(out)
+    out = out.join(ichimoku(out))
+    out = out.join(chandelier_exit(out))
+    out["cci20"] = cci(out)
     return out
 
 
@@ -148,6 +224,14 @@ class PriceSnapshot:
     adx14: float | None = None
     roc10: float | None = None
     technical_composite: float | None = None
+    ichimoku_tenkan: float | None = None
+    ichimoku_kijun: float | None = None
+    ichimoku_senkou_a: float | None = None
+    ichimoku_senkou_b: float | None = None
+    ichimoku_cloud_position: str = "UNKNOWN"
+    chandelier_long_stop: float | None = None
+    chandelier_short_stop: float | None = None
+    cci20: float | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -164,15 +248,18 @@ def technical_composite_score(
     bb_pctb: float | None,
     roc10: float | None,
     macd_hist: float | None,
+    cci20: float | None = None,
+    ichimoku_cloud: str | None = None,
 ) -> float | None:
-    """A single 0-100 technical-strength read, built from FIVE distinct
-    indicator families (momentum oscillator, stochastic, trend strength,
-    mean-reversion band position, rate-of-change) rather than one signal —
-    this is deliberately not "RSI alone" or "trend alone." Each component is
-    scored independently, then combined with fixed weights; missing
-    components are excluded and the rest renormalized (never treated as 0
-    or a neutral 50, which would silently understate real signal when data
-    is genuinely available for the other components).
+    """A single 0-100 technical-strength read, built from up to SEVEN
+    distinct indicator families (momentum oscillator, stochastic, trend
+    strength, mean-reversion band position, rate-of-change, CCI, Ichimoku
+    cloud position) rather than one signal — this is deliberately not "RSI
+    alone" or "trend alone." Each component is scored independently, then
+    combined with fixed weights; missing components are excluded and the
+    rest renormalized (never treated as 0 or a neutral 50, which would
+    silently understate real signal when data is genuinely available for
+    the other components).
 
     This does NOT predict future returns — it is a same-family cousin of the
     Baseline Score (processing/scoring.py), i.e. a transparent, deterministic
@@ -181,10 +268,10 @@ def technical_composite_score(
     empirical question this function does not answer; see the ML/rocket_science
     modules for the parts of this system that are actually walk-forward tested.
 
-    Weights: momentum(RSI) 25%, stochastic 20%, trend strength(ADX, direction
-    -agnostic — weighted by whether price is currently rising, via ROC) 20%,
-    Bollinger %B (mean-reversion position within the band) 20%, MACD
-    histogram sign 15%.
+    Weights: momentum(RSI) 20%, stochastic 15%, trend strength(ADX, direction
+    -agnostic — weighted by whether price is currently rising, via ROC) 15%,
+    Bollinger %B (mean-reversion position within the band) 15%, MACD
+    histogram sign 10%, CCI 15%, Ichimoku cloud position 10%.
     """
     components: dict[str, float] = {}
 
@@ -218,10 +305,23 @@ def technical_composite_score(
     if macd_hist is not None:
         components["macd_sign"] = 65.0 if macd_hist > 0 else 35.0
 
+    if cci20 is not None:
+        # CCI is unbounded (typically -200..+200) — map through a soft clip
+        # centered on 0=neutral(50), +/-150 saturating the 0-100 range. A
+        # distinct family from RSI/Stochastic: deviation from a moving
+        # average scaled by mean absolute deviation, not a high-low range.
+        components["cci"] = _clip(50 + cci20 / 3, 0, 100)
+
+    if ichimoku_cloud is not None and ichimoku_cloud != "UNKNOWN":
+        components["ichimoku_cloud"] = {"above_cloud": 70.0, "in_cloud": 50.0, "below_cloud": 30.0}.get(ichimoku_cloud, 50.0)
+
     if not components:
         return None
 
-    weights = {"momentum": 0.25, "stochastic": 0.20, "trend_strength_directional": 0.20, "band_position": 0.20, "macd_sign": 0.15}
+    weights = {
+        "momentum": 0.20, "stochastic": 0.15, "trend_strength_directional": 0.15,
+        "band_position": 0.15, "macd_sign": 0.10, "cci": 0.15, "ichimoku_cloud": 0.10,
+    }
     weight_sum = sum(weights[k] for k in components)
     return round(sum(weights[k] * v for k, v in components.items()) / weight_sum, 2)
 
@@ -284,6 +384,14 @@ def snapshot(ticker: str, df: pd.DataFrame) -> PriceSnapshot:
         stoch_d=_f(row["stoch_d"]),
         adx14=_f(row["adx14"]),
         roc10=_f(row["roc10"]),
+        ichimoku_tenkan=_f(row["ichimoku_tenkan"]),
+        ichimoku_kijun=_f(row["ichimoku_kijun"]),
+        ichimoku_senkou_a=_f(row["ichimoku_senkou_a"]),
+        ichimoku_senkou_b=_f(row["ichimoku_senkou_b"]),
+        ichimoku_cloud_position=ichimoku_cloud_position(last, _f(row["ichimoku_senkou_a"]), _f(row["ichimoku_senkou_b"])),
+        chandelier_long_stop=_f(row["chandelier_long_stop"]),
+        chandelier_short_stop=_f(row["chandelier_short_stop"]),
+        cci20=_f(row["cci20"]),
         technical_composite=technical_composite_score(
             rsi14=_f(row["rsi14"]),
             stoch_k=_f(row["stoch_k"]),
@@ -291,5 +399,7 @@ def snapshot(ticker: str, df: pd.DataFrame) -> PriceSnapshot:
             bb_pctb=_f(row["bb_pctb"]),
             roc10=_f(row["roc10"]),
             macd_hist=_f(row["hist"]),
+            cci20=_f(row["cci20"]),
+            ichimoku_cloud=ichimoku_cloud_position(last, _f(row["ichimoku_senkou_a"]), _f(row["ichimoku_senkou_b"])),
         ),
     )
