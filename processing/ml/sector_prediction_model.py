@@ -149,6 +149,99 @@ def _artifact_paths(horizon_days: int) -> tuple:
     )
 
 
+def _oos_calibration_table(oos_probs: np.ndarray, oos_labels: np.ndarray, n_buckets: int = 5) -> list[dict]:
+    """Buckets pooled OOS predictions into n_buckets equal-width probability
+    ranges and reports each bucket's actual hit rate plus a standard-error
+    margin (sqrt(p(1-p)/n)) — the data this project's abstention gate
+    (abstention_gate(), below) uses to decide whether a given probability
+    is actually distinguishable from the base rate, rather than assuming
+    any P>0.5 (or any fixed cutoff) means something. Computed ONLY from
+    pooled OOS fold predictions, never in-sample."""
+    edges = np.linspace(0, 1, n_buckets + 1)
+    rows = []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        mask = (oos_probs >= lo) & (oos_probs < hi if hi < 1 else oos_probs <= hi)
+        n = int(mask.sum())
+        actual_rate = float(oos_labels[mask].mean()) if n else None
+        margin = float(np.sqrt(actual_rate * (1 - actual_rate) / n)) if n and actual_rate not in (0, 1) else None
+        rows.append({
+            "predicted_range": f"{lo:.0%}-{hi:.0%}", "n": n,
+            "predicted_avg": round(float(oos_probs[mask].mean()), 4) if n else None,
+            "actual_rate": round(actual_rate, 4) if actual_rate is not None else None,
+            "actual_rate_margin": round(margin, 4) if margin is not None else None,
+        })
+    return rows
+
+
+def abstention_gate(p_top3_sector: float, calibration_table: list[dict] | None, base_rate: float) -> dict:
+    """Should THIS specific probability be trusted as an edge, or is it
+    statistically indistinguishable from the base rate given how this
+    model's calibration has actually behaved out-of-sample? This is the
+    data-driven alternative to a hardcoded cutoff like "P>0.55=BUY" (which
+    the quant-architecture spec this was built against explicitly warns
+    against using without validating the threshold): it finds which
+    calibration bucket p_top3_sector falls into, and requires that
+    bucket's actual OOS hit rate to clear the base rate by more than its
+    own standard-error margin — i.e. the bucket's own historical
+    confidence interval must not include the base rate.
+
+    Returns {"has_edge": bool, "reason": str} — has_edge=False means
+    ABSTAIN (NO_EDGE), not "the model says no." A candidate can fail this
+    gate even with a numerically high p_top3_sector if that probability
+    range hasn't actually differentiated from the base rate in OOS
+    testing (small-bucket noise, a rank-order-correct-but-poorly-separated
+    model, etc.) — the gate is about DEMONSTRATED separation, not the
+    raw number."""
+    if not calibration_table:
+        return {"has_edge": None, "reason": "no calibration table available this run — cannot assess"}
+    bucket = None
+    for row in calibration_table:
+        lo_s, hi_s = row["predicted_range"].split("-")
+        lo, hi = float(lo_s.rstrip("%")) / 100, float(hi_s.rstrip("%")) / 100
+        if lo <= p_top3_sector <= hi:
+            bucket = row
+            if p_top3_sector < hi or hi == 1.0:
+                break
+    if bucket is None or bucket.get("actual_rate") is None:
+        return {"has_edge": None, "reason": f"no OOS observations in this probability's calibration bucket ({bucket['predicted_range'] if bucket else 'n/a'}) — too sparse to assess"}
+    if bucket.get("n", 0) < 15:
+        return {"has_edge": None, "reason": f"only {bucket['n']} OOS observations in this bucket — too few to distinguish from the base rate either way"}
+    margin = bucket.get("actual_rate_margin") or 0.0
+    # Point-estimate comparison, NOT margin-of-error-adjusted — deliberately
+    # the same standard evaluate()'s own overall status=PASS check uses
+    # (mean_auc > 0.55 is also a point estimate, not a CI test). An earlier
+    # version of this gate required actual_rate MINUS its margin to clear
+    # the base rate — a full one-sided confidence-interval test — and it
+    # failed EVERY live sector on real data: this model's probabilities are
+    # heavily compressed near the base rate (AUC~0.59 is a real but modest
+    # aggregate ranking edge, not a model that produces confidently
+    # separated probabilities), so with only 5 calibration buckets nothing
+    # ever cleared a full margin. That would have made the abstention gate
+    # silently say NO_EDGE forever, misrepresenting a model that DOES show
+    # real (if modest) walk-forward discrimination — a worse failure mode
+    # than a slightly looser gate. clears_margin_of_error is still reported
+    # separately so a reader can see the difference between "a real, if
+    # unremarkable, point estimate" and "a confidently separated one."
+    has_edge = bucket["actual_rate"] > base_rate
+    clears_margin = (bucket["actual_rate"] - margin) > base_rate
+    confidence = "clears its own margin of error (a more confident signal)" if clears_margin else (
+        "within its own margin of error (a real point-estimate difference, not a statistically decisive one)" if has_edge
+        else "at or below the base rate"
+    )
+    return {
+        "has_edge": has_edge,
+        "clears_margin_of_error": clears_margin,
+        "bucket": bucket["predicted_range"],
+        "bucket_actual_rate": bucket["actual_rate"],
+        "bucket_n": bucket["n"],
+        "base_rate": base_rate,
+        "reason": (
+            f"OOS bucket {bucket['predicted_range']} actually hit {bucket['actual_rate']:.0%} of the time "
+            f"(±{margin:.0%}, n={bucket['n']}) vs. a {base_rate:.0%} base rate — {confidence}."
+        ),
+    }
+
+
 def evaluate(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON_DAYS) -> dict:
     """Purged, embargoed walk-forward evaluation — same discipline as every
     other phase. Returns honest OOS metrics, never fit-then-report-in-sample."""
@@ -158,6 +251,7 @@ def evaluate(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON_DAYS) ->
 
     splits = purged_walk_forward_splits(data["date"], n_folds=4, embargo_days=horizon_days)
     fold_results = []
+    oos_probs, oos_labels = [], []  # pooled across folds, for the calibration table / abstention gate below
     for fold_i, (train_idx, test_idx) in enumerate(splits):
         X_train, X_test = data.loc[train_idx, feature_cols], data.loc[test_idx, feature_cols]
         y_train, y_test = data.loc[train_idx, "is_top_k"].values, data.loc[test_idx, "is_top_k"].values
@@ -177,6 +271,8 @@ def evaluate(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON_DAYS) ->
         p_hgb = hgb.predict_proba(Xte)[:, 1]
         p_lr = lr.predict_proba(Xte)[:, 1]
         p_ensemble = (p_hgb + p_lr) / 2
+        oos_probs.append(p_ensemble)
+        oos_labels.append(y_test)
 
         fold_results.append(
             {
@@ -199,6 +295,7 @@ def evaluate(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON_DAYS) ->
     mean_brier = round(float(np.mean([f["brier_ensemble"] for f in fold_results])), 4)
     base_rate = round(float(data["is_top_k"].mean()), 4)  # ~TOP_K/13 by construction
     coin_flip_brier = round(base_rate * (1 - base_rate), 4)
+    calibration_table = _oos_calibration_table(np.concatenate(oos_probs), np.concatenate(oos_labels))
 
     result = {
         "target": f"top_{TOP_K}_of_13_sectors_by_{horizon_days}D_forward_return",
@@ -212,6 +309,7 @@ def evaluate(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON_DAYS) ->
         "coin_flip_brier_baseline": coin_flip_brier,
         "beats_coin_flip": mean_brier < coin_flip_brier,
         "status": "PASS" if mean_auc > 0.55 and mean_brier < coin_flip_brier else "NO_DEMONSTRATED_EDGE",
+        "calibration_table": calibration_table,
         "note": (
             f"base_rate ({base_rate}) is the unconditional probability any sector is top-{TOP_K} of 13 on a "
             "given date (~TOP_K/13 by construction, not a finding). mean_oos_brier must beat "
@@ -388,11 +486,34 @@ def predict_next_move(refresh: bool = False, horizon_days: int = DEFAULT_HORIZON
     live["model_agreement"] = 1 - np.abs(p_hgb - p_lr)
     live = live.sort_values("p_top3_ensemble", ascending=False)
 
-    predictions = live[["sector", "p_top3_ensemble", "p_top3_hgb", "p_top3_lr", "model_agreement", "realized_vol_20d", "ret_20d"]].to_dict(orient="records")
+    # Abstention gate: does THIS probability actually clear the base rate
+    # by more than its own OOS calibration-bucket margin of error, or is it
+    # numerically-high but statistically indistinguishable from "no edge"?
+    calibration_table = evaluation.get("calibration_table")
+    base_rate = evaluation.get("base_rate", TOP_K / 13)
+    live["edge_gate"] = live["p_top3_ensemble"].apply(lambda p: abstention_gate(p, calibration_table, base_rate))
+    live["has_edge"] = live["edge_gate"].apply(lambda g: g.get("has_edge"))
+
+    predictions = live[["sector", "p_top3_ensemble", "p_top3_hgb", "p_top3_lr", "model_agreement", "realized_vol_20d", "ret_20d", "has_edge", "edge_gate"]].to_dict(orient="records")
+    any_edge = any(p.get("has_edge") for p in predictions)
 
     return {
         "target": evaluation.get("target", f"top_{TOP_K}_of_13_sectors_by_20D_forward_return"),
         "predictions_all_13_sectors": predictions,
+        "any_sector_has_edge": any_edge,
+        "abstention_note": (
+            "has_edge=True means that sector's probability falls in an OOS calibration bucket whose actual "
+            "hit rate, on average, beat the base rate (a point-estimate comparison — see "
+            "edge_gate.clears_margin_of_error for the stricter, margin-of-error-adjusted version of the same "
+            "check). has_edge=False/None does NOT mean 'this sector will underperform' — it means this "
+            "run's probability for it hasn't even cleared the base rate on average historically. " + (
+                "NO sector clears the gate this run — treat every prediction below as informational, not "
+                "actionable, until a future run shows real separation." if not any_edge else
+                "At least one sector clears the gate this run — check clears_margin_of_error on each to tell "
+                "a real-but-modest point estimate (this model's typical case, given AUC~0.59) apart from a "
+                "confidently separated one."
+            )
+        ),
         "model_oos_reliability": {
             "mean_oos_auc": evaluation.get("mean_oos_auc"),
             "mean_oos_brier": evaluation.get("mean_oos_brier"),

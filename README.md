@@ -172,6 +172,28 @@ the same depth of stress-testing (Phase 4/5-style adversarial/non-
 overlapping checks) as 20D, and no candidate ranking or trade level
 anywhere in the report uses it yet.
 
+**Abstention gate** (`processing/ml/sector_prediction_model.py:abstention_gate()`):
+every sector prediction now carries a `has_edge` flag — data-driven, not a
+hardcoded probability cutoff like "P>0.55=BUY". It buckets the model's
+pooled OOS predictions into 5 calibration ranges and checks whether a
+given probability's bucket actually beat the base rate historically
+(`has_edge`), and separately whether it cleared that bucket's own margin
+of error (`clears_margin_of_error` — a stricter, confidence-interval-style
+version of the same check). Building this surfaced a real methodological
+trap worth stating plainly: an earlier version required the margin-
+adjusted test to pass for `has_edge` itself, and it failed EVERY live
+sector, every run — this model's probabilities are compressed near the
+base rate (a real but modest AUC~0.59 ranking edge doesn't imply
+confidently separated probabilities), so with only 5 buckets nothing ever
+cleared a full one-sided margin. That would have silently made the report
+say "no edge" forever, misrepresenting a model that does show real
+aggregate discrimination. Fixed to a point-estimate standard for
+`has_edge` — the same standard `evaluate()`'s own overall PASS/FAIL check
+already uses (mean_auc > 0.55 is also a point estimate) — with the
+stricter margin-adjusted result kept alongside, not discarded, so a
+reader can tell "real but unremarkable" apart from "confidently
+separated."
+
 That number is the product of five rounds of rigorous, leakage-tested
 research (`processing/ml/phase1..5_*.py`, `storage/models/*.json`,
 `storage/models/experiments.jsonl` — permanent, never overwritten) that

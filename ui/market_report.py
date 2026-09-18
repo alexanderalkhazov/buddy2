@@ -1170,16 +1170,26 @@ def generate(refresh: bool = False) -> str:
             "as the core Phase 4/5 finding — treat it as an experimental extension, not equally validated.*"
         )
         lines.append("\n**Calibrated probability, ALL 13 sectors (top-3-of-13 by 20D forward return)**")
-        lines.append("| Sector | P(top-3) | Model Agreement | 20D Vol | 20D Momentum |")
-        lines.append("|---|---|---|---|---|")
+        lines.append("| Sector | P(top-3) | Edge? | Model Agreement | 20D Vol | 20D Momentum |")
+        lines.append("|---|---|---|---|---|---|")
         for p in _rocket.get("predictions_all_13_sectors", []):
             if "error" in p:
                 continue
+            gate = p.get("edge_gate") or {}
+            if p.get("has_edge") and gate.get("clears_margin_of_error"):
+                edge_label = "EDGE (clears margin)"
+            elif p.get("has_edge"):
+                edge_label = "edge (within margin)"
+            elif p.get("has_edge") is False:
+                edge_label = "NO EDGE"
+            else:
+                edge_label = "n/a"
             lines.append(
-                f"| {p['sector'].replace('_', ' ').title()} | {_fmt(p.get('p_top3_ensemble'))} | "
+                f"| {p['sector'].replace('_', ' ').title()} | {_fmt(p.get('p_top3_ensemble'))} | {edge_label} | "
                 f"{_fmt(p.get('model_agreement'))} | {_fmt(p.get('realized_vol_20d'))}% | {_fmt(p.get('ret_20d'))}% |"
             )
         lines.append(f"\n*{_rocket.get('note', '')}*")
+        lines.append(f"\n*{_rocket.get('abstention_note', '')}*")
         lines.append(
             "\n*The lowest-P(top-3) sectors in this table are the model's LEAST-favored, not a positively "
             "validated \"will underperform\" signal (sector_prediction_model was trained and evaluated to "

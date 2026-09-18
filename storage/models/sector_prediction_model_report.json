@@ -41,5 +41,42 @@
   "coin_flip_brier_baseline": 0.1775,
   "beats_coin_flip": true,
   "status": "PASS",
+  "calibration_table": [
+    {
+      "predicted_range": "0%-20%",
+      "n": 204,
+      "predicted_avg": 0.188,
+      "actual_rate": 0.1569,
+      "actual_rate_margin": 0.0255
+    },
+    {
+      "predicted_range": "20%-40%",
+      "n": 1794,
+      "predicted_avg": 0.2336,
+      "actual_rate": 0.2397,
+      "actual_rate_margin": 0.0101
+    },
+    {
+      "predicted_range": "40%-60%",
+      "n": 1,
+      "predicted_avg": 0.4248,
+      "actual_rate": 0.0,
+      "actual_rate_margin": null
+    },
+    {
+      "predicted_range": "60%-80%",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_rate": null,
+      "actual_rate_margin": null
+    },
+    {
+      "predicted_range": "80%-100%",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_rate": null,
+      "actual_rate_margin": null
+    }
+  ],
   "note": "base_rate (0.2308) is the unconditional probability any sector is top-3 of 13 on a given date (~TOP_K/13 by construction, not a finding). mean_oos_brier must beat coin_flip_brier_baseline (predicting base_rate for everyone, every time) to represent any real information \u2014 an AUC above 0.55 with a Brier score above the coin-flip baseline is NOT a genuine edge, regardless of how the AUC number looks in isolation."
 }
