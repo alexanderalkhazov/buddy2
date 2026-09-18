@@ -79,6 +79,15 @@ def build_sector_dataset(
         merged["trend_regime_bull"] = merged["trend_regime"].map(_TREND_REGIME_CODE)
         merged["vol_regime_ordinal"] = merged["vol_regime"].astype(object).map(_VOL_REGIME_CODE)
         merged = merge_macro_asof(merged, macro)
+        # NOTE: real sector-ETF price action (processing/ml/sector_etf.py) was
+        # built and walk-forward ablated as a candidate feature source here
+        # and DELIBERATELY NOT wired in — etf_ret_20d hurt alone (0.5896 ->
+        # 0.5820 mean_oos_auc), etf_rel_ret_vs_index hurt alone (-> 0.5875),
+        # and even added together the "improvement" (-> 0.5911) was smaller
+        # than the noise floor from having only 3 walk-forward folds, with
+        # each feature separately hurting — the signature of an unstable
+        # small-sample interaction, not a real one. Left as a reusable,
+        # documented module for future re-testing, not silently discarded.
         merged = merged.iloc[MIN_HISTORY_BARS:]
         merged = merged.iloc[::SAMPLE_STRIDE]
         merged = merged.dropna(subset=FEATURE_COLUMNS)
