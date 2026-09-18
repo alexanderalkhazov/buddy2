@@ -124,16 +124,6 @@ def market_regime() -> dict:
             "QQQ to agree to call 'bullish'/'bearish'; otherwise 'mixed'. This is context for "
             "reading a single ticker's technicals, not a market-timing signal on its own — a "
             "stock can look strong in a weak regime (real relative strength) or weak in a strong "
-            "regime (real relative weakness); see get_relative_strength for that ticker-specific "
-            "comparison."
+            "regime (real relative weakness)."
         ),
     }
-
-
-def sector_regime(sector_etf: str | None) -> dict | None:
-    """Same trend snapshot, applied to a ticker's own sector/industry ETF proxy
-    (see relative_strength.sector_etf) — separate from the broad-market regime
-    above, since a stock's own sector can diverge from SPY/QQQ."""
-    if not sector_etf:
-        return None
-    return _index_regime(sector_etf)
