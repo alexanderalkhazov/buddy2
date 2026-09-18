@@ -49,22 +49,34 @@ scores all ~104 tickers across all 13 US equity sectors:
    (Part A7 below).
 2. For every member ticker of every sector, take a live technical snapshot
    including the full indicator set — RSI, Stochastic, ADX, Bollinger %B,
-   ROC, MACD sign — reduced to that ticker's own `technical_composite`
-   (0-100, `processing/indicators.py:technical_composite_score`).
+   ROC, MACD sign, CCI, Ichimoku cloud position — reduced to that ticker's
+   own `technical_composite` (0-100,
+   `processing/indicators.py:technical_composite_score`, 7 indicator
+   families).
 3. `long_score` = the ticker's sector probability, nudged up or down by up
    to ±10% based on how far its own `technical_composite` sits from neutral
    (50). `short_score` mirrors this on the bearish side, using
-   `1 - sector probability` as the base. Only the sector probability is
-   walk-forward validated — the technical-composite nudge is an
-   unvalidated tiebreaker among tickers in the same sector, stated as such
-   in the report, not hidden in the score.
-4. The top 10 by each score are printed as **TOP LONG CANDIDATES** and
+   `1 - sector probability` as the base. **This nudge is not cosmetic — it
+   changes ranking order**: two tickers in the same sector (same sector
+   probability) are ordered purely by this technical read, so a ticker
+   with a stronger composite reliably ranks above a weaker one within its
+   sector. Only the sector probability itself is walk-forward validated —
+   the technical-composite nudge is an unvalidated tiebreaker, stated as
+   such in the report, not hidden in the score.
+4. Each ranked row also carries a real entry/stop/TP1
+   (`processing/scoring.py:trade_levels()` — ATR-based, same arithmetic as
+   Part B's Trade Levels section) — a concrete "buy here, stop there" per
+   candidate, not a bare ranking with no action attached.
+5. The top 10 by each score are printed as **TOP LONG CANDIDATES** and
    **TOP SHORT CANDIDATES** tables, immediately after the model's own
    measured OOS reliability (AUC/Brier vs. a coin-flip baseline).
 
-**Risk management is deliberately excluded from this section** — no
-stop-loss, position size, or entry timing. This is a ranked watchlist, not
-a trade plan; `report TICKER` is where actual trade levels come from (Part
+**Position sizing is still excluded from this section** — entry/stop/TP1
+are shown per candidate, but no share count or account-risk calculation
+(that needs `--account-size`, only meaningful per-ticker). This is a ranked
+watchlist with real trade levels attached, not a full trade plan;
+`report TICKER` is where the fuller picture (TP2, earnings-proximity
+warning, alternative stop conventions, position sizing) comes from (Part
 B, below).
 
 The rest of the report (Parts A2-A9) follows below as **supporting data** —
@@ -78,9 +90,10 @@ framing.
 computes:
 - each index's position vs. its own 20/50/200-day SMA (shown as an explicit
   YES/NO table, not just a label, so "mixed" is traceable)
-- **five additional indicator families per index**: Bollinger %B, Stochastic
-  %K, ADX(14) trend strength, ROC(10), and a **technical composite (0-100)**
-  blending all five plus RSI and MACD sign
+- **the full indicator set per index**: Bollinger %B, Stochastic %K, ADX(14)
+  trend strength, ROC(10), CCI(20), Ichimoku cloud position (Tenkan/Kijun/
+  Senkou Span A+B), plus a **technical composite (0-100)** blending all of
+  those with RSI and MACD sign — 7 indicator families
   (`processing/indicators.py:technical_composite_score`) — never one
   indicator alone
 - **market_technical_composite** — the SPY/QQQ average of that composite —
