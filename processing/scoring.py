@@ -286,3 +286,93 @@ def trade_levels(
     return out
 
 
+def conviction_verdict(
+    direction: str,
+    n_indicators_confirm: int,
+    n_indicators_conflict: int,
+    earnings_severity: str | None,
+    swing_fit: str | None,
+    historical_expectancy_r: float | None,
+) -> dict:
+    """A single combined verdict — STRONG / MODERATE / WEAK / AVOID — that
+    actually GATES on the measured trade-mechanics backtest
+    (processing/ml/trade_mechanics_backtest.py) rather than treating it as
+    one more data point alongside everything else. This is deliberate: a
+    real, walk-forward-measured negative expectancy for a direction (see
+    the SHORT side's -0.21R/trade result) is a stronger, more specific
+    claim than "conflicting indicators" or "earnings risk soon" — those are
+    heuristics about THIS candidate; historical_expectancy_r is a measured
+    fact about the MECHANICS every candidate in that direction shares. It
+    should never be outvoted by a handful of agreeing oscillators.
+
+    Everything else here is an explicit, inspectable point system, not a
+    black box: indicator agreement ratio (how many of the technical
+    families that fed technical_composite actually confirm this direction,
+    not just the composite's own scalar), earnings-proximity severity (an
+    IMMEDIATE/ELEVATED earnings gap can invalidate the whole ATR-stop
+    premise), and the day-trade/swing suitability screen's own swing_fit
+    (this system's validated horizon is the 20-day swing one; a POOR fit
+    there means the candidate doesn't suit the horizon this system
+    actually has evidence for)."""
+    reasons = []
+
+    # --- Hard gate: measured mechanics expectancy -------------------------
+    if historical_expectancy_r is not None and historical_expectancy_r < 0:
+        return {
+            "verdict": "AVOID",
+            "reasons": [
+                f"Walk-forward backtest measured NEGATIVE expectancy ({historical_expectancy_r:+.2f}R/trade, "
+                f"before costs) for this exact {direction.upper()} entry/stop/TP1 mechanics on historical "
+                "data — a measured fact about the mechanics itself, not a heuristic about this candidate. "
+                "This overrides every other signal below; see the trade-mechanics backtest section above "
+                "for the full sample."
+            ],
+            "capped_by_measured_expectancy": True,
+        }
+
+    # --- Everything else: an explicit, inspectable point system -----------
+    score = 0
+    n_indicator_signals = n_indicators_confirm + n_indicators_conflict
+    if n_indicator_signals > 0:
+        agreement_ratio = n_indicators_confirm / n_indicator_signals
+        if agreement_ratio >= 0.7:
+            score += 2
+            reasons.append(f"{n_indicators_confirm}/{n_indicator_signals} technical indicator families confirm this direction ({agreement_ratio:.0%}) — broad agreement, not one signal.")
+        elif agreement_ratio >= 0.5:
+            score += 1
+            reasons.append(f"{n_indicators_confirm}/{n_indicator_signals} technical indicator families confirm this direction ({agreement_ratio:.0%}) — a majority, not unanimous.")
+        else:
+            score -= 1
+            reasons.append(f"Only {n_indicators_confirm}/{n_indicator_signals} technical indicator families confirm this direction ({agreement_ratio:.0%}) — more indicators conflict with it than support it.")
+    else:
+        reasons.append("No indicator agree/conflict signals available this run.")
+
+    if earnings_severity in ("IMMEDIATE", "ELEVATED"):
+        score -= 2
+        reasons.append(f"Earnings risk is {earnings_severity} — a gap here can invalidate the ATR-based stop with no fill available at that level.")
+    elif earnings_severity == "APPROACHING":
+        score -= 1
+        reasons.append("Earnings is approaching within two weeks — a secondary timing risk, not immediate.")
+
+    if swing_fit == "POOR_SWING_FIT":
+        score -= 1
+        reasons.append("POOR swing-horizon fit — this candidate doesn't suit the ~20-trading-day horizon this system actually has evidence for.")
+    elif swing_fit == "GOOD_SWING_FIT":
+        score += 1
+        reasons.append("GOOD swing-horizon fit — liquid, trending, and not overly gap-exposed for the horizon this system's validated edge targets.")
+
+    if historical_expectancy_r is not None and historical_expectancy_r >= 0:
+        reasons.append(f"Walk-forward backtest measured POSITIVE expectancy ({historical_expectancy_r:+.2f}R/trade, before costs) for this mechanics on historical data — real but small-sample, not a guarantee.")
+
+    if score >= 3:
+        verdict = "STRONG"
+    elif score >= 1:
+        verdict = "MODERATE"
+    elif score >= -1:
+        verdict = "WEAK"
+    else:
+        verdict = "AVOID"
+
+    return {"verdict": verdict, "reasons": reasons, "capped_by_measured_expectancy": False}
+
+

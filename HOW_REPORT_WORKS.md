@@ -128,6 +128,26 @@ two *separate* verdicts that are never blended into one score:
   *could* work the name, pending intraday confirmation, never that this
   system has an intraday edge. It has none, and has never tested for one.
 
+**VERDICT** — `processing/scoring.py:conviction_verdict()` combines
+everything above into one STRONG/MODERATE/WEAK/AVOID call, as an explicit
+point system rather than a black box:
+
+- Indicator agreement ratio (`ui/market_report.py:_indicator_agreement_counts()`
+  — how many of the 7 technical families actually confirm vs. conflict
+  with this direction, not just the composite's own scalar).
+- Earnings-proximity severity (IMMEDIATE/ELEVATED subtracts; APPROACHING
+  subtracts less).
+- Swing-fit (GOOD adds, POOR subtracts).
+- **A hard gate**: if the trade-mechanics backtest (Step 1.5 above)
+  measured NEGATIVE expectancy for this direction, the verdict is capped
+  at AVOID regardless of every other point above. This is deliberate — a
+  measured fact about whether the entry/stop/TP1 convention itself has
+  worked historically is a stronger, more specific claim than any
+  per-candidate heuristic, and should never be outvoted by a few agreeing
+  oscillators. It's why every SHORT candidate currently shows AVOID even
+  when its own indicators look fine — the cap is about the mechanics
+  every SHORT candidate shares, not about that specific ticker.
+
 Each section closes with the same honest reminder: the sector-level
 probability is the validated part; the indicator/news reasoning is real,
 live-computed context, not a second backtested signal.

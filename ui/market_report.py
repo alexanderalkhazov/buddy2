@@ -181,6 +181,75 @@ def _indicator_reasons(row: dict, direction: str) -> list[str]:
     return reasons
 
 
+def _indicator_agreement_counts(row: dict, direction: str) -> tuple[int, int]:
+    """(n_confirm, n_conflict) across the same indicator families
+    _indicator_reasons() renders as text — kept as a separate, structured
+    function rather than parsing that function's prose, so a future wording
+    change there can't silently break the conviction-verdict math here.
+    Only indicators with an unambiguous directional read count; a soft/
+    neutral reading (e.g. RSI between 30-50 with no clear signal) counts
+    toward neither, same as _indicator_reasons() treats it as informational
+    only."""
+    bullish = direction == "long"
+    confirm, conflict = 0, 0
+
+    rsi = row.get("rsi14")
+    if rsi is not None:
+        if rsi > 70 or (50 <= rsi <= 70):
+            confirm += 1 if bullish else 0
+            conflict += 1 if not bullish else 0
+        elif rsi < 30:
+            confirm += 1 if not bullish else 0
+            conflict += 1 if bullish else 0
+
+    stoch = row.get("stoch_k")
+    if stoch is not None:
+        if stoch >= 80:
+            confirm += 1 if bullish else 0
+            conflict += 1 if not bullish else 0
+        elif stoch <= 20:
+            confirm += 1 if not bullish else 0
+            conflict += 1 if bullish else 0
+
+    adx, roc = row.get("adx14"), row.get("roc10")
+    if adx is not None and roc is not None:
+        agrees = (roc >= 0) == bullish
+        confirm += 1 if agrees else 0
+        conflict += 0 if agrees else 1
+
+    bb = row.get("bb_pctb")
+    if bb is not None:
+        if bb >= 0.8:
+            confirm += 1 if bullish else 0
+            conflict += 1 if not bullish else 0
+        elif bb <= 0.2:
+            confirm += 1 if not bullish else 0
+            conflict += 1 if bullish else 0
+
+    macd = row.get("macd_hist")
+    if macd is not None:
+        agrees = (macd > 0) == bullish
+        confirm += 1 if agrees else 0
+        conflict += 0 if agrees else 1
+
+    cci = row.get("cci20")
+    if cci is not None:
+        if cci > 100:
+            confirm += 1 if bullish else 0
+            conflict += 1 if not bullish else 0
+        elif cci < -100:
+            confirm += 1 if not bullish else 0
+            conflict += 1 if bullish else 0
+
+    cloud = row.get("ichimoku_cloud_position")
+    if cloud in ("above_cloud", "below_cloud"):
+        agrees = (cloud == "above_cloud") == bullish
+        confirm += 1 if agrees else 0
+        conflict += 0 if agrees else 1
+
+    return confirm, conflict
+
+
 def _news_for_candidate(ticker: str, direction: str, refresh: bool = False) -> dict:
     """Fetches this ticker's own real news (same pipeline as the Market News
     Digest) and reports the single most recent item plus whether its sentiment
@@ -442,6 +511,14 @@ def generate(refresh: bool = False) -> str:
             "model's measured edge is modest (see Model reliability above)."
         )
 
+        try:
+            _tm_expectancy = json.loads(_TRADE_MECHANICS_REPORT_PATH.read_text())
+            _expectancy_by_direction = {
+                d: _tm_expectancy.get(d, {}).get("expectancy_r_per_trade") for d in ("long", "short")
+            }
+        except Exception:
+            _expectancy_by_direction = {"long": None, "short": None}
+
         # ---- Why / When / How — one detailed section per candidate ----------
         for label, direction, entry_key, stop_key, tp1_key in (
             ("LONG", "long", "long_entry", "long_stop", "long_tp1"),
@@ -514,6 +591,27 @@ def generate(refresh: bool = False) -> str:
                     for reason in style.get("day_trade_reasons", []):
                         lines.append(f"  - {reason}")
                     lines.append(f"  - *{style['day_trade_caveat']}*")
+
+                n_confirm, n_conflict = _indicator_agreement_counts(r, direction)
+                verdict = scoring.conviction_verdict(
+                    direction=direction,
+                    n_indicators_confirm=n_confirm,
+                    n_indicators_conflict=n_conflict,
+                    earnings_severity=when_result.get("severity") if when_result.get("available") else None,
+                    swing_fit=style.get("swing_fit"),
+                    historical_expectancy_r=_expectancy_by_direction.get(direction),
+                )
+                lines.append(f"\n**VERDICT: {verdict['verdict']}**")
+                for reason in verdict["reasons"]:
+                    lines.append(f"- {reason}")
+                if verdict["capped_by_measured_expectancy"]:
+                    lines.append(
+                        "- *This verdict is capped by measured historical mechanics, not by this "
+                        "candidate's own indicators/news/timing — even a candidate with strong-looking "
+                        "technicals inherits this cap, because the cap is about whether the entry/stop/TP1 "
+                        "convention itself has worked historically for this direction, not about this "
+                        "specific ticker.*"
+                    )
 
                 lines.append(
                     "\n*This candidate's ranking is driven mainly by the sector-level probability above "

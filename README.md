@@ -51,6 +51,14 @@ That's the whole CLI — one command, no arguments needed.
      SUPPORTS / CONFLICTS WITH / NEUTRAL call against the direction.
    - **WHEN** — earnings-proximity risk from the ticker's real next
      earnings date (a gap can jump past a stop with no fill available).
+   - **VERDICT** — STRONG/MODERATE/WEAK/AVOID, an explicit, inspectable
+     point system combining indicator agreement ratio, earnings-proximity
+     severity, swing-fit, and — as a hard gate that overrides everything
+     else — the measured trade-mechanics backtest expectancy for that
+     direction (see below). A negative measured expectancy caps every
+     candidate in that direction at AVOID regardless of how good any one
+     ticker's own technicals look, because that's a fact about the
+     mechanics, not a heuristic about the ticker.
    - **DAY TRADE OR SWING TRADE?** — a suitability verdict computed from
      daily-bar tradability stats: 20-day average dollar volume, average
      daily range %, average overnight gap %, the gap's share of total
