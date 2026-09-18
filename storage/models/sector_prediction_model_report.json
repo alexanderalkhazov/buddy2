@@ -5,37 +5,37 @@
   "folds": [
     {
       "fold": 0,
-      "n_train": 637,
+      "n_train": 611,
       "n_test": 666,
       "test_start": "2023-07-27",
       "test_end": "2024-08-01",
-      "auc_hgb": 0.4628,
-      "auc_ensemble": 0.5976,
-      "brier_ensemble": 0.1763
+      "auc_hgb": 0.4678,
+      "auc_ensemble": 0.5358,
+      "brier_ensemble": 0.1772
     },
     {
       "fold": 1,
-      "n_train": 1300,
+      "n_train": 1274,
       "n_test": 666,
       "test_start": "2024-08-01",
       "test_end": "2025-08-08",
-      "auc_hgb": 0.549,
-      "auc_ensemble": 0.5916,
+      "auc_hgb": 0.548,
+      "auc_ensemble": 0.5857,
       "brier_ensemble": 0.1747
     },
     {
       "fold": 2,
-      "n_train": 1963,
+      "n_train": 1937,
       "n_test": 667,
       "test_start": "2025-08-08",
       "test_end": "2026-08-14",
-      "auc_hgb": 0.5549,
-      "auc_ensemble": 0.6241,
-      "brier_ensemble": 0.1744
+      "auc_hgb": 0.5478,
+      "auc_ensemble": 0.626,
+      "brier_ensemble": 0.1748
     }
   ],
-  "mean_oos_auc": 0.6044,
-  "mean_oos_brier": 0.1751,
+  "mean_oos_auc": 0.5825,
+  "mean_oos_brier": 0.1756,
   "base_rate": 0.2308,
   "coin_flip_brier_baseline": 0.1775,
   "beats_coin_flip": true,

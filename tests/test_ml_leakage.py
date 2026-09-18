@@ -126,13 +126,18 @@ def test_embargo_gap_present_in_walk_forward_split() -> None:
     for fold_i, (train_idx, test_idx) in enumerate(splits):
         train_dates = df["date"].iloc[train_idx]
         test_dates = df["date"].iloc[test_idx]
-        gap = (test_dates.min() - train_dates.max()).days
-        assert gap >= max_horizon, (
-            f"LEAKAGE: fold {fold_i} has only {gap} calendar days between the last "
+        # TRADING-day gap (dates here are business days), not calendar days —
+        # this is the same unit the embargo must actually satisfy, and the
+        # earlier version of this test compared calendar days against a
+        # trading-day threshold, which let the exact bug it existed to catch
+        # (train.py's embargo being applied in the wrong unit) pass silently.
+        gap_trading_days = int(np.busday_count(train_dates.max().date(), test_dates.min().date()))
+        assert gap_trading_days >= max_horizon, (
+            f"LEAKAGE: fold {fold_i} has only {gap_trading_days} trading days between the last "
             f"training date and the first test date; need >= {max_horizon} trading-day "
             "horizon worth of embargo so overlapping labels can't straddle the split."
         )
-    print(f"PASS: all {len(splits)} walk-forward folds carry a >= {max_horizon}-day embargo")
+    print(f"PASS: all {len(splits)} walk-forward folds carry a >= {max_horizon}-trading-day embargo")
 
 
 if __name__ == "__main__":

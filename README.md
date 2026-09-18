@@ -76,9 +76,12 @@ That's the whole CLI — one command, no arguments needed.
 A calibrated gradient-boosting + logistic-regression ensemble predicting
 each sector's probability of landing in the top-3-of-13 by 20-day forward
 return, evaluated with purged, embargoed, walk-forward validation (never
-trained-then-graded on the same data). Measured result: **AUC ≈ 0.60,
-Brier ≈ 0.175 vs. a 0.178 coin-flip baseline** — a real but modest edge,
-reported as such.
+trained-then-graded on the same data). Measured result: **AUC ≈ 0.58,
+Brier ≈ 0.176 vs. a 0.178 coin-flip baseline** — a real but modest edge,
+reported as such. (Revised down from an earlier ≈0.60 after fixing a walk-
+forward embargo unit bug — calendar days vs. the trading-day label horizon —
+that had let a small amount of leakage into the measurement; see git history
+for the fix.)
 
 That number is the product of five rounds of rigorous, leakage-tested
 research (`processing/ml/phase1..5_*.py`, `storage/models/*.json`,

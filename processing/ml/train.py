@@ -42,11 +42,19 @@ N_FOLDS = 4
 def purged_walk_forward_splits(dates: pd.Series, n_folds: int = N_FOLDS, embargo_days: int = 20):
     """Chronological expanding-window folds with an embargo gap. Returns a list
     of (train_positional_indices, test_positional_indices) over `dates`, sorted
-    ascending. embargo_days is CALENDAR days (dates here are trading days, so
-    this is conservative — a 20-trading-day horizon spans ~28 calendar days,
-    and using the raw day count as the gap threshold undercounts weekends,
-    erring toward a slightly wider embargo than strictly necessary, never
-    narrower)."""
+    ascending. embargo_days is a TRADING-day count (it's the label horizon, e.g.
+    a fwd_ret_20d target needs a >=20-trading-day gap so no training label's
+    (t, t+20] window can reach into the test period). Dates themselves are
+    calendar timestamps (and may be stride-sampled, e.g. every 5th trading day
+    — see sector_dataset.py:SAMPLE_STRIDE), so the embargo is converted to
+    calendar days conservatively (7/5 ratio for weekends, plus a fixed buffer
+    for market holidays) rather than compared directly — a raw
+    Timedelta(days=embargo_days) undercounts calendar days for a trading-day
+    horizon and would let leakage through (see tests/test_ml_leakage.py's
+    trading-day-aware embargo check)."""
+    import math
+
+    embargo_calendar_days = math.ceil(embargo_days * 7 / 5) + 5  # trading->calendar + holiday buffer
     order = np.argsort(dates.values)
     sorted_dates = dates.values[order]
     n = len(sorted_dates)
@@ -58,7 +66,7 @@ def purged_walk_forward_splits(dates: pd.Series, n_folds: int = N_FOLDS, embargo
         if test_start_pos >= test_end_pos:
             continue
         test_start_date = sorted_dates[test_start_pos]
-        embargo_cutoff = pd.Timestamp(test_start_date) - pd.Timedelta(days=embargo_days)
+        embargo_cutoff = pd.Timestamp(test_start_date) - pd.Timedelta(days=embargo_calendar_days)
 
         train_mask = sorted_dates < np.datetime64(embargo_cutoff)
         test_mask = np.zeros(n, dtype=bool)

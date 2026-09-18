@@ -148,8 +148,14 @@ The one validated component. Trains a calibrated gradient-boosting +
 logistic-regression ensemble to predict each sector's probability of
 landing in the top-3-of-13 by 20-day forward return, using purged,
 embargoed, walk-forward validation (never trained-then-graded on the same
-data). Measured result: AUC ≈ 0.60, Brier ≈ 0.175 vs. a 0.178 coin-flip
-baseline — a real but modest edge, reported as such, not oversold.
+data). Measured result: AUC ≈ 0.58, Brier ≈ 0.176 vs. a 0.178 coin-flip
+baseline — a real but modest edge, reported as such, not oversold. (This
+was ≈0.60 before a walk-forward embargo unit bug — the embargo was applied
+in calendar days against a trading-day label horizon, undercounting the
+required gap — was found and fixed, along with a sector-index construction
+bug that let one member's incidental pre-common-date drift bias the whole
+sector composite. Both revised the metric down, not up — a good sign the
+fix removed real leakage rather than just moving noise around.)
 Retrain it directly with `python -m processing.ml.sector_prediction_model`.
 
 The deeper research behind it — five phases of deliberately trying to

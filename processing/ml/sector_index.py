@@ -1,6 +1,7 @@
 """Synthetic, point-in-time-safe sector price indices — equal-weighted OHLC
-average across each sector's member tickers (each ticker's own OHLC rebased
-to 100 at the index's start date, then averaged elementwise). Averaging valid
+average across each sector's member tickers (each ticker's OHLC rebased to
+100 at the SAME shared start date — the first date every member has data for
+— then averaged elementwise). Averaging valid
 OHLC bars elementwise preserves high >= close >= low (since it holds for every
 member on every day, it holds for the elementwise average), so the resulting
 synthetic series is a well-formed OHLC frame the existing indicators/features
@@ -38,23 +39,39 @@ def build_sector_index(sector: str, refresh: bool = False) -> pd.DataFrame:
         df = df.dropna(subset=["open", "high", "low", "close"])
         if len(df) < MIN_MEMBER_BARS:
             continue
-        base = df[["open", "high", "low", "close"]].iloc[0]
-        if (base <= 0).any():
-            continue
-        rebased = df[["open", "high", "low", "close"]] / base * 100
-        rebased["volume"] = df["volume"]
-        frames.append(rebased)
+        frames.append(df[["open", "high", "low", "close", "volume"]])
 
     if len(frames) < 3:
         raise RuntimeError(f"sector {sector!r} has too few usable tickers ({len(frames)}) to build an index")
 
-    # Inner-join on dates every member has, so the index never averages over a
-    # day where only some members reported (which would silently shift its level).
+    # Inner-join on dates every member has FIRST, so every member is rebased to
+    # 100 at the SAME shared start date. Rebasing each ticker to its own first
+    # cached row (as this used to do) before intersecting to common_dates lets
+    # a member with a longer/earlier history drift away from 100 before the
+    # shared window even begins, silently overweighting whichever member
+    # happened to run up most since ITS OWN start — not a true equal-weight
+    # index of the sector over the period the index actually covers.
     common_dates = frames[0].index
     for f in frames[1:]:
         common_dates = common_dates.intersection(f.index)
-    aligned = [f.loc[common_dates] for f in frames]
+    if len(common_dates) == 0:
+        raise RuntimeError(f"sector {sector!r} has no shared trading dates across its usable tickers")
+    common_dates = common_dates.sort_values()
 
+    rebased_frames = []
+    for f in frames:
+        aligned = f.loc[common_dates]
+        base = aligned[["open", "high", "low", "close"]].iloc[0]
+        if (base <= 0).any():
+            continue
+        rebased = aligned[["open", "high", "low", "close"]] / base * 100
+        rebased["volume"] = aligned["volume"]
+        rebased_frames.append(rebased)
+
+    if len(rebased_frames) < 3:
+        raise RuntimeError(f"sector {sector!r} has too few usable tickers ({len(rebased_frames)}) to build an index")
+
+    aligned = rebased_frames
     index_df = sum(aligned) / len(aligned)
     index_df["volume"] = sum(f["volume"] for f in aligned)  # sum, not average — a scale-free proxy is fine, only used for z-scoring
     return index_df.sort_index()

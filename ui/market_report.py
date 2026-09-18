@@ -875,7 +875,7 @@ def generate(refresh: bool = False) -> str:
         )
         lines.append(
             "\n*status=PASS means the model beat a coin-flip baseline in walk-forward testing — a real "
-            "but MODEST edge (AUC ~0.60), not a validated trading signal on its own. Read alongside "
+            "but MODEST edge (see mean_oos_auc above), not a validated trading signal on its own. Read alongside "
             "research_edge_status above; this model has NOT yet been through the same multi-phase "
             "stress-testing (sector-neutral, adversarial, non-overlapping, point-in-time-universe checks) "
             "as the core Phase 4/5 finding — treat it as an experimental extension, not equally validated.*"
@@ -891,47 +891,14 @@ def generate(refresh: bool = False) -> str:
                 f"{_fmt(p.get('model_agreement'))} | {_fmt(p.get('realized_vol_20d'))}% | {_fmt(p.get('ret_20d'))}% |"
             )
         lines.append(f"\n*{_rocket.get('note', '')}*")
-
-        # ---- Short / Underperformer Candidates -------------------------------
-        lines.append("\n## Short / Underperformer Candidates")
         lines.append(
-            "IMPORTANT SCOPE NOTE: sector_prediction_model was trained and evaluated to predict TOP-3-of-13 "
-            "sectors — it was never separately trained or validated as a bottom-predicting model. The "
-            "lowest P(top-3) sectors below are the model's LEAST-favored, not a positively validated "
-            "\"will underperform\" or \"short-worthy\" signal — treat this section as lower-confidence than "
-            "the Next Market Move table above, not equally validated."
+            "\n*The lowest-P(top-3) sectors in this table are the model's LEAST-favored, not a positively "
+            "validated \"will underperform\" signal (sector_prediction_model was trained and evaluated to "
+            "predict TOP-3, never separately validated as a bottom-predictor). Named, ranked short "
+            "candidates are in TOP SHORT CANDIDATES at the top of this report — that table, not this one, "
+            "is this report's single source of truth for which tickers to short; it is not repeated here "
+            "under different selection logic to avoid the two silently disagreeing.*"
         )
-        preds = [p for p in _rocket.get("predictions_all_13_sectors", []) if "error" not in p]
-        bottom = sorted(preds, key=lambda p: p.get("p_top3_ensemble", 1))[:3]
-        if bottom:
-            lines.append("\n| Sector | P(top-3) (lowest = least favored) | 20D Vol | 20D Momentum |")
-            lines.append("|---|---|---|---|")
-            for p in bottom:
-                lines.append(f"| {p['sector'].replace('_', ' ').title()} | {_fmt(p.get('p_top3_ensemble'))} | {_fmt(p.get('realized_vol_20d'))}% | {_fmt(p.get('ret_20d'))}% |")
-
-            lines.append("\n**Candidate tickers within the least-favored sectors, with bearish technical readings**")
-            lines.append("| Ticker | Sector | Last | Change % | RSI14 | Trend |")
-            lines.append("|---|---|---|---|---|---|")
-            for p in bottom:
-                sector = p["sector"]
-                for ticker in EXPANDED_UNIVERSE_V2.get(sector, []):
-                    try:
-                        s = price_snapshot(ticker, get_ohlcv(ticker, force=refresh))
-                    except Exception:
-                        continue
-                    if s.trend in ("below_all_smas",) or (s.rsi14 is not None and s.rsi14 < 40):
-                        lines.append(f"| {ticker} | {sector.replace('_', ' ').title()} | {_fmt(s.last)} | {_fmt(s.change_pct)}% | {_fmt(s.rsi14)} | {s.trend} |")
-            lines.append(
-                "\n*Filtered to member tickers already showing bearish technicals (below all SMAs, or "
-                "RSI14 < 40) within the least-favored sectors — this compounds two unvalidated-for-this-"
-                "purpose signals (sector underperformance, individual technical weakness) rather than one, "
-                "so treat these as the WEAKEST-confidence candidates in this entire report. Shorting carries "
-                "asymmetric risk (theoretically unbounded loss, borrow costs, squeeze risk) not modeled "
-                "anywhere in this system — factor that in on top of the stop-loss levels shown, which "
-                "account for price risk only, not borrow/squeeze risk.*"
-            )
-        else:
-            lines.append("\nNo prediction data available this run.")
 
     # ---- Reliability & Limitations -----------------------------------------
     lines.append("\n## Reliability & Limitations")

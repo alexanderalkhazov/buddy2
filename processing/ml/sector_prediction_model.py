@@ -188,6 +188,44 @@ def train_and_save(refresh: bool = False) -> dict:
     return evaluation
 
 
+def _live_breadth(sector: str, refresh: bool = False) -> dict:
+    """Real per-sector breadth at the latest available bar, computed the same
+    way sector_dataset.py:_compute_breadth() computes it historically (mean
+    across member tickers of: above own SMA50/200, positive 20D return; plus
+    median RSI14) — so live inference sees the same distribution of values
+    the model was actually trained on, not a constant placeholder."""
+    above_sma50, above_sma200, positive_20d, rsis = [], [], [], []
+    for t in EXPANDED_UNIVERSE_V2[sector]:
+        try:
+            df = get_ohlcv(t, force=refresh)
+            feats = compute_features(df)
+            row = feats.dropna(subset=["close"]).iloc[-1]
+        except Exception:
+            continue
+        if pd.isna(row.get("dist_sma50_pct")) or pd.isna(row.get("dist_sma200_pct")) or pd.isna(row.get("ret_20d")):
+            continue
+        above_sma50.append(row["dist_sma50_pct"] > 0)
+        above_sma200.append(row["dist_sma200_pct"] > 0)
+        positive_20d.append(row["ret_20d"] > 0)
+        if not pd.isna(row.get("rsi14")):
+            rsis.append(row["rsi14"])
+
+    if not above_sma50:
+        # No member ticker resolved — fall back to a neutral midpoint rather
+        # than crashing the whole prediction run, but this is now a genuine
+        # fallback for a data-outage edge case, not the default path.
+        return {
+            "breadth_pct_above_sma50": 50.0, "breadth_pct_above_sma200": 50.0,
+            "breadth_pct_positive_20d": 50.0, "breadth_median_rsi": 50.0,
+        }
+    return {
+        "breadth_pct_above_sma50": round(sum(above_sma50) / len(above_sma50) * 100, 2),
+        "breadth_pct_above_sma200": round(sum(above_sma200) / len(above_sma200) * 100, 2),
+        "breadth_pct_positive_20d": round(sum(positive_20d) / len(positive_20d) * 100, 2),
+        "breadth_median_rsi": round(float(pd.Series(rsis).median()), 2) if rsis else 50.0,
+    }
+
+
 def predict_next_move(refresh: bool = False) -> dict:
     """Live prediction: calibrated P(top-3-of-13) for ALL 13 sectors right
     now, spanning the full US equity sector map — technology, semis,
@@ -231,8 +269,9 @@ def predict_next_move(refresh: bool = False) -> dict:
     live["vol_x_mom"] = live["vol_z"] * live["mom_z"]
     live["vol_rank"] = live["realized_vol_20d"].rank(pct=True)
     live["mom_rank"] = live["ret_20d"].rank(pct=True)
+    breadth = live["sector"].apply(lambda s: _live_breadth(s, refresh=refresh))
     for col in ("breadth_pct_above_sma50", "breadth_pct_above_sma200", "breadth_pct_positive_20d", "breadth_median_rsi"):
-        live[col] = 50.0  # neutral default when live per-sector breadth isn't recomputed for this snapshot call
+        live[col] = breadth.apply(lambda b: b[col])
     live["breadth_x_vol"] = live["breadth_pct_above_sma50"] * live["vol_z"]
 
     missing_cols = [c for c in feature_cols if c not in live.columns]
