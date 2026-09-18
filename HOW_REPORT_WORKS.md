@@ -56,6 +56,17 @@ utilities, materials, communication services, real estate):
    reliability (AUC/Brier vs. a coin-flip baseline), which is itself
    immediately followed by the trade-mechanics backtest below.
 
+**Diversification cap** — `_diversified_top_n()` selects the top 5 with a
+hard cap of `MAX_CANDIDATES_PER_SECTOR` (2) per sector, applied greedily
+in score order (only relaxed, and flagged when it is, if too few distinct
+sectors clear the cap to fill 5 slots). Institutional portfolio guidance
+caps a single sector around 20-30% of a portfolio; this scales that
+convention down to a 5-name list as a risk CONSTRAINT applied at report-
+assembly time, not a fitted parameter tuned against backtest P&L — doing
+the latter would defeat the point of a risk control. Without it, the
+ranking correctly but unhelpfully surfaces 5 names from whichever single
+sector scores highest that run.
+
 **Does the mechanics itself work, separate from sector AUC?**
 `processing/ml/trade_mechanics_backtest.py` answers this directly rather
 than leaving it as an open question: for each historical OOS rebalance
@@ -98,6 +109,21 @@ most recent article: title, **source**, publish date, sentiment, a direct
 **source link**, and an explicit **SUPPORTS / CONFLICTS WITH / NEUTRAL**
 call against the candidate's direction. If no usable news exists, it says
 so rather than fabricating a headline.
+
+The top headline is also checked against
+`processing/news_proc.py:is_earnings_surprise_headline()` — a narrow regex
+(beat/miss/top/exceed + estimate/expectations/forecast, or "earnings
+beat/miss/surprise") that flags EARNINGS-SURPRISE headlines specifically,
+not general sentiment. Post-earnings-announcement drift (PEAD) is one of
+the most-studied real anomalies in finance, distinct from ordinary
+sentiment — but it's genuinely contested for large, liquid names like most
+candidates here (Martineau 2022 finds it largely vanished for non-
+microcaps after 2006, while other work still finds it 2008-2019), so the
+report labels this an event worth noting, not a stronger signal than the
+sentiment/alignment call already gives it. Deliberately NOT built out into
+a full M&A/guidance/generic taxonomy — there's no comparable evidence base
+for those categories, and a keyword classifier there would just be false
+precision.
 
 **WHEN** — `_when_for_candidate()` fetches the ticker's next earnings date
 and reports an earnings-proximity severity tier

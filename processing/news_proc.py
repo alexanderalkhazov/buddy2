@@ -37,6 +37,38 @@ def _lexicon_sentiment(text: str) -> str:
     return "neutral"
 
 
+# Post-earnings-announcement drift (Bernard & Thomas 1989 onward) is one of
+# the most-studied anomalies in finance, and it's specific to a distinct
+# EVENT TYPE — an earnings beat/miss — not just "positive/negative
+# sentiment" in general. It's real but contested at exactly this project's
+# universe: Martineau (2022) finds the drift largely vanished for non-
+# microcap stocks after 2006, while other recent work (Meursault et al.
+# 2023, text-based surprise measures) still finds it 2008-2019. So: flag
+# this event type explicitly (it has a real, if disputed, literature behind
+# it), but never claim it as a validated edge — deliberately NOT built out
+# into a full M&A/guidance/generic taxonomy, since there's no comparable
+# evidence base for those categories and a keyword classifier there would
+# just be false precision.
+_EARNINGS_SURPRISE_PATTERN = re.compile(
+    r"\b(beat|beats|top|tops|miss|misses|falls short of|exceed|exceeds)\b.{0,25}\b(estimate|estimates|expectations|forecast|forecasts|consensus)\b"
+    r"|\b(earnings (beat|miss|surprise))\b"
+    r"|\b(quarterly (earnings|results)|q[1-4] (earnings|results))\b.{0,30}\b(beat|miss|top|exceed|fall short)",
+    re.IGNORECASE,
+)
+
+
+def is_earnings_surprise_headline(title: str, summary: str = "") -> bool:
+    """True if this headline/summary reads as an earnings-beat-or-miss
+    report specifically, not general sentiment — see the PEAD note above.
+    Deliberately narrow (regex, not a model): a false negative just means
+    this headline gets treated as ordinary sentiment, which is always
+    correct as a fallback; a false positive would misleadingly label a
+    headline as PEAD-relevant, so the pattern requires an explicit
+    beat/miss + estimate/expectations pairing, not just the word
+    'earnings' alone."""
+    return bool(_EARNINGS_SURPRISE_PATTERN.search(f"{title or ''} {summary or ''}"))
+
+
 def _age_label(published_at) -> str:
     if not published_at:
         return "undated"

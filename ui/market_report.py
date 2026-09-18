@@ -44,6 +44,17 @@ INDICES = {"^GSPC": "S&P 500", "^IXIC": "Nasdaq Composite", "^DJI": "Dow Jones I
 CRYPTO = {"BTC-USD": "Bitcoin", "ETH-USD": "Ethereum", "SOL-USD": "Solana"}
 N_SECTOR_LEADERS = 5  # how many top-ranked sectors get their member tickers listed as named candidates — kept above 3 so the report visibly spans multiple industries, not just whichever single sector is most volatile this week
 
+# Per web research into portfolio-construction practice (FINRA/J.P. Morgan
+# Private Bank concentration-risk guidance): institutional convention caps
+# a single sector at roughly 20-30% of a portfolio. Scaled to a 5-name
+# candidate list, that's ~1-1.5 names — MAX_CANDIDATES_PER_SECTOR=2 is a
+# deliberately round, slightly looser number (not fitted against backtest
+# P&L, which would defeat the point of a risk CONSTRAINT rather than an
+# alpha input), chosen because without a cap the ranking has repeatedly
+# surfaced top-5 lists concentrated almost entirely in one sector — 5
+# correlated names dressed up as 5 diversified ideas.
+MAX_CANDIDATES_PER_SECTOR = 2
+
 
 def _fmt(value, suffix: str = "", none: str = "n/a") -> str:
     return none if value is None else f"{value:,.2f}{suffix}" if isinstance(value, (int, float)) else str(value)
@@ -325,6 +336,7 @@ def _news_for_candidate(ticker: str, direction: str, refresh: bool = False) -> d
         "sentiment": sentiment,
         "alignment": alignment,
         "n_articles_checked": len(processed),
+        "is_earnings_surprise": news_proc.is_earnings_surprise_headline(top.get("title", ""), top.get("summary", "")),
     }
 
 
@@ -340,6 +352,46 @@ def _when_for_candidate(ticker: str, as_of: str, refresh: bool = False) -> dict:
     next_earnings = fund.get("next_earnings_date")
     proximity = scoring.earnings_proximity_risk(as_of, next_earnings)
     return {"available": True, **proximity}
+
+
+def _diversified_top_n(rows: list[dict], score_key: str, top_n: int, max_per_sector: int = MAX_CANDIDATES_PER_SECTOR) -> list[dict]:
+    """Greedily takes the top_n highest-scoring rows, capping how many can
+    come from the same sector — otherwise the ranking (correctly, since
+    score is dominated by the sector-level probability) tends to surface a
+    top-N list concentrated almost entirely in whichever single sector
+    ranks highest that run, which is 5 correlated bets on one sector's
+    outcome dressed up as 5 diversified ideas. See MAX_CANDIDATES_PER_SECTOR
+    for the sourcing/rationale on the cap value.
+
+    Falls back to relaxing the cap only if there genuinely aren't enough
+    distinct sectors to fill top_n slots otherwise (flagged in the result
+    so this is never silent) — the cap is a risk constraint, not a promise
+    to always show 5 different sectors regardless of how few pass the
+    scoring bar at all."""
+    # rows is shared between the long_score and short_score calls (a ticker
+    # can in principle rank highly for both) — never mutate the shared row
+    # dicts in place; copy before annotating.
+    ranked = sorted(rows, key=lambda r: r[score_key], reverse=True)
+    selected, sector_counts, deferred = [], {}, []
+    for r in ranked:
+        if len(selected) >= top_n:
+            break
+        sector = r["sector"]
+        if sector_counts.get(sector, 0) < max_per_sector:
+            selected.append({**r, "_diversification_cap_relaxed": False})
+            sector_counts[sector] = sector_counts.get(sector, 0) + 1
+        else:
+            deferred.append(r)
+
+    if len(selected) < top_n:
+        # Not enough distinct sectors cleared the cap to fill top_n — relax
+        # it rather than silently returning fewer candidates than asked for.
+        for r in deferred:
+            if len(selected) >= top_n:
+                break
+            selected.append({**r, "_diversification_cap_relaxed": True})
+
+    return selected
 
 
 def _ranked_predictions(refresh: bool = False, top_n: int = 5) -> dict:
@@ -433,8 +485,8 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 5) -> dict:
                 }
             )
 
-    long_ranked = sorted(rows, key=lambda r: r["long_score"], reverse=True)[:top_n]
-    short_ranked = sorted(rows, key=lambda r: r["short_score"], reverse=True)[:top_n]
+    long_ranked = _diversified_top_n(rows, "long_score", top_n)
+    short_ranked = _diversified_top_n(rows, "short_score", top_n)
     return {"long": long_ranked, "short": short_ranked, "reliability": reliability, "n_tickers_scored": len(rows)}
 
 
@@ -562,6 +614,21 @@ def generate(refresh: bool = False) -> str:
             "second tested signal. These are RANKINGS, not probabilities of profit — the underlying "
             "model's measured edge is modest (see Model reliability above)."
         )
+        lines.append(
+            f"\n*Diversification: each table caps at {MAX_CANDIDATES_PER_SECTOR} candidates per sector "
+            "(institutional portfolio-construction convention limits a single sector to roughly 20-30% "
+            "of a portfolio — this is that guidance scaled down to a 5-name list, a risk CONSTRAINT, not "
+            "a fitted parameter) — without it, the ranking would correctly but unhelpfully surface 5 "
+            "names from whichever single sector currently scores highest, which is 5 correlated bets on "
+            "one sector's outcome, not 5 diversified ideas."
+            + (
+                " Not enough distinct sectors cleared the cap this run, so it was relaxed for: "
+                + ", ".join(sorted({r["ticker"] for r in _pred["long"] + _pred["short"] if r.get("_diversification_cap_relaxed")}))
+                + "."
+                if any(r.get("_diversification_cap_relaxed") for r in _pred["long"] + _pred["short"])
+                else ""
+            )
+        )
 
         try:
             _tm_expectancy = json.loads(_TRADE_MECHANICS_REPORT_PATH.read_text())
@@ -611,6 +678,15 @@ def generate(refresh: bool = False) -> str:
                     )
                     if news_result.get("url"):
                         lines.append(f"  Source link: {news_result['url']}")
+                    if news_result.get("is_earnings_surprise"):
+                        lines.append(
+                            "  *This reads as an EARNINGS BEAT/MISS headline specifically, not general "
+                            "sentiment — post-earnings-announcement drift is one of the most-studied real "
+                            "anomalies in finance, though contested for large, liquid names like most "
+                            "candidates in this report (evidence for it weakening post-2006 outside "
+                            "microcaps). Treat this headline as a real, if disputed, event, not a stronger "
+                            "signal than the sentiment/alignment call above already gives it.*"
+                        )
                 else:
                     lines.append(f"- No usable recent news found for {r['ticker']} this run ({news_result.get('reason') or news_result.get('error', 'unavailable')}).")
 

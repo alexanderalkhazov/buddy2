@@ -38,7 +38,10 @@ That's the whole CLI — one command, no arguments needed.
    discretionary/staples, utilities, materials, communication services,
    real estate). Ranking combines a calibrated sector-level probability
    (`sector_prediction_model`, walk-forward validated) with each ticker's
-   own live technical reading.
+   own live technical reading, capped at 2 candidates per sector (per web
+   research into portfolio-concentration-risk guidance — without the cap,
+   the top 5 would often be 5 correlated bets on whichever single sector
+   ranks highest, not 5 diversified ideas).
 2. **Why / When / How, per candidate** — for every one of the 10
    candidates:
    - **HOW** — a real entry/stop/take-profit (ATR-based).
@@ -49,7 +52,10 @@ That's the whole CLI — one command, no arguments needed.
      cherry-picked to look one-sided.
    - **WHY (news)** — that ticker's own real, recent headline: title,
      source, date, sentiment, a direct source link, and an explicit
-     SUPPORTS / CONFLICTS WITH / NEUTRAL call against the direction.
+     SUPPORTS / CONFLICTS WITH / NEUTRAL call against the direction —
+     flagged separately when it reads as an earnings beat/miss headline
+     specifically (post-earnings-announcement drift is a real, if
+     contested-for-large-caps, anomaly, distinct from generic sentiment).
    - **WHEN** — earnings-proximity risk from the ticker's real next
      earnings date (a gap can jump past a stop with no fill available).
    - **VERDICT** — STRONG/MODERATE/WEAK/AVOID, an explicit, inspectable
