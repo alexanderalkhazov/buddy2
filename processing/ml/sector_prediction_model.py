@@ -59,6 +59,33 @@ EMBARGO_DAYS = 20
 # decomposition specifically identified vol and momentum as the two things
 # that matter, so their interaction and each one's own breadth-context are
 # the natural next things to give the model access to.
+#
+# CROSS_SECTIONAL_RANK_SOURCE_COLUMNS: tested and REJECTED as model features
+# after web research flagged per-date cross-sectional rank normalization as
+# the highest-value, lowest-overfitting-risk lever available (the label
+# this model predicts — "top-3-of-13 sectors ON THIS DATE" — is fundamentally
+# a within-date ranking task, so a feature's rank vs. the other 12 sectors
+# on that date should in principle matter more than its raw value; vol_rank/
+# mom_rank already do this for volatility/momentum specifically).
+#
+# Ablation result: adding all 17 candidate _xrank columns at once made
+# things WORSE (mean_oos_auc 0.5896 -> 0.5826). Testing each individually
+# showed several apparent improvements (e.g. ret_10d_xrank alone: 0.5974;
+# dist_sma20_pct_xrank alone: 0.5958) — but combining even just those two
+# single best performers together dropped BELOW baseline (0.5866), and
+# combining the 7 features that each individually looked like an
+# improvement dropped to 0.5880. This is the same instability signature the
+# rejected sector-ETF features showed (see the sector_etf.py commit):
+# individually-promising features that don't survive combination are the
+# signature of noise from a small (3-fold) OOS sample, not real signal.
+# NOT wired into _feature_set() — kept here, unused, so this doesn't need
+# re-deriving before someone re-tests it on more history/folds later.
+CROSS_SECTIONAL_RANK_SOURCE_COLUMNS = [
+    *FEATURE_COLUMNS,
+    "breadth_pct_above_sma50", "breadth_pct_above_sma200", "breadth_pct_positive_20d", "breadth_median_rsi",
+]
+
+
 def _add_interaction_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     d = df.copy()
     d["vol_z"] = d.groupby("date")["realized_vol_20d"].transform(lambda s: (s - s.mean()) / (s.std() or 1))

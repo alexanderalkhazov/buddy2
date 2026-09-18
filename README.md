@@ -121,6 +121,26 @@ ones that actually moved OOS AUC/Brier in the right direction (see
 ablation result and what was dropped, including why VIX level, realized
 vol, and credit spreads didn't make the cut).
 
+**Methodology review** (web research into the best-evidenced algorithmic
+approaches for this exact problem shape): CPCV, LightGBM/XGBoost/CatBoost,
+and a learned stacking meta-learner were all researched and NOT
+implemented — the evidence says none would help at this sample size (only
+2-3 usable OOS folds), and would mainly add overfitting surface. The one
+recommendation that looked genuinely promising — per-date cross-sectional
+rank normalization of every feature — was implemented and ablation-tested
+anyway, and REJECTED: individually-promising features (e.g. one alone
+moved AUC to 0.597) collapsed below baseline when combined, the same
+instability signature that got the sector-ETF features rejected earlier —
+noise from a small OOS sample, not real signal (see
+`processing/ml/sector_prediction_model.py:CROSS_SECTIONAL_RANK_SOURCE_COLUMNS`).
+A rank-averaged ensemble blend was also tested and rejected (worse on both
+AUC and Brier). Honest conclusion from the research: **AUC ≈ 0.59 on this
+problem shape (13 cross-sectional units, technical+macro features only, no
+fundamentals/alt-data, 20-day horizon) is plausibly near the realistic
+ceiling** — comparable to or better than AUC ≈ 0.547 reported in the
+literature for a much larger-N, richer-feature single-stock XGBoost study.
+More model sophistication is more likely to buy overfitting than edge.
+
 That number is the product of five rounds of rigorous, leakage-tested
 research (`processing/ml/phase1..5_*.py`, `storage/models/*.json`,
 `storage/models/experiments.jsonl` — permanent, never overwritten) that
