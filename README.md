@@ -65,8 +65,18 @@ That's the whole CLI — one command, no arguments needed.
      daily range %, average overnight gap %, the gap's share of total
      movement, ADX14 (Wilder's own 25/20 trending/choppy thresholds), and
      the Kaufman Efficiency Ratio (how much of the last 20 days' total
-     travel became net directional movement). The swing verdict is the
-     horizon this system actually models — `sector_prediction_model`
+     travel became net directional movement) — all UNCONDITIONAL 20-day
+     averages, cross-checked against three OWN-HISTORY-relative signals
+     (per web research into what specifically sharpens this decision):
+     Relative Volume vs. the stock's own 20-day norm, ATR% percentile rank
+     against its own trailing year, and 52-week high/low proximity. The
+     cross-check exists specifically so a stock that fails the generic
+     day-trade floor but is having an unusual (high-volume, high-range)
+     day gets flagged as a transient exception — and a stock that passes
+     generically but is unusually quiet today gets flagged too — without
+     either changing the honest systemic verdict, which stays a stable
+     trait read, not a one-day event dressed up as one. The swing verdict
+     is the horizon this system actually models — `sector_prediction_model`
      targets 20-trading-day returns. The day-trade line is a *candidacy
      screen only, pending intraday confirmation*, and says so in the same
      breath: this system holds no intraday data and has never tested

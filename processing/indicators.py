@@ -255,6 +255,42 @@ def tradability_stats(df: pd.DataFrame, window: int = 20) -> pd.DataFrame:
     net_move = (close - close.shift(window)).abs()
     path_length = close.diff().abs().rolling(window).sum()
     out["efficiency_ratio"] = (net_move / path_length).where(path_length > 0)
+
+    # --- Own-history-normalized "is TODAY typical or a spike" signals ------
+    # Everything above is an UNCONDITIONAL 20-day average — it says whether a
+    # stock is generically wide-ranging/liquid, not whether TODAY specifically
+    # is a normal day or an outlier for THIS stock. These three answer that,
+    # each against the stock's OWN trailing history (never a fixed universal
+    # threshold), so trade_style_fit() can tell "systemically day-tradable"
+    # apart from "today happens to be an unusual day for a normally-quiet
+    # name" — two different claims that get conflated if only cross-sectional
+    # thresholds are used.
+    if "atr14" in df.columns:
+        atr_pct = df["atr14"] / close * 100
+        out["atr_pct"] = atr_pct
+        # Percentile rank of TODAY's ATR% within its own trailing 252-day
+        # (≈1 trading year) history — min_periods=100 so a young ticker
+        # reports None rather than a percentile computed against too little
+        # history to mean anything.
+        out["atr_pct_percentile_252d"] = atr_pct.rolling(252, min_periods=100).apply(
+            lambda x: (x <= x[-1]).mean(), raw=True
+        )
+
+    # Relative Volume (RVOL): today's volume vs. the mean of the PRIOR 20
+    # days (today itself excluded from its own baseline via shift(1), so
+    # this can't be inflated by including the very day it's measuring).
+    vol_baseline = df["volume"].shift(1).rolling(window).mean()
+    out["rvol_20d"] = (df["volume"] / vol_baseline).where(vol_baseline > 0)
+
+    # 52-week high/low proximity — a structural "room to run" / trend-
+    # context read, not a volatility or liquidity measure like the rest of
+    # this function. Uses the actual traded high/low (not just closes), the
+    # standard "52-week high" convention. <=0 exactly at a new high/low.
+    high_252 = df["high"].rolling(252, min_periods=50).max()
+    low_252 = df["low"].rolling(252, min_periods=50).min()
+    out["pct_from_52w_high"] = (close - high_252) / high_252 * 100
+    out["pct_from_52w_low"] = (close - low_252) / low_252 * 100
+
     return out
 
 
@@ -333,6 +369,12 @@ class PriceSnapshot:
     avg_overnight_gap_pct: float | None = None
     gap_share_of_range: float | None = None
     efficiency_ratio: float | None = None
+    # Own-history-normalized "is today typical or a spike" signals — see
+    # tradability_stats() docstring.
+    atr_pct_percentile_252d: float | None = None
+    rvol_20d: float | None = None
+    pct_from_52w_high: float | None = None
+    pct_from_52w_low: float | None = None
     # Volume-weighted momentum (MFI), time-based trend (Aroon), and an
     # ATR-based volatility band (Keltner) — three more genuinely distinct
     # indicator families, not variations on ones already above.
@@ -530,6 +572,10 @@ def snapshot(ticker: str, df: pd.DataFrame) -> PriceSnapshot:
         avg_overnight_gap_pct=_f(row["avg_overnight_gap_pct"]),
         gap_share_of_range=_f(row["gap_share_of_range"]),
         efficiency_ratio=_f(row["efficiency_ratio"]),
+        atr_pct_percentile_252d=_f(row.get("atr_pct_percentile_252d")),
+        rvol_20d=_f(row.get("rvol_20d")),
+        pct_from_52w_high=_f(row.get("pct_from_52w_high")),
+        pct_from_52w_low=_f(row.get("pct_from_52w_low")),
         mfi14=_f(row["mfi14"]),
         aroon_up=_f(row["aroon_up"]),
         aroon_down=_f(row["aroon_down"]),

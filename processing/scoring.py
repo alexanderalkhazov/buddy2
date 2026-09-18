@@ -17,6 +17,14 @@ _SWING_TRENDING_ADX = 25.0               # Wilder's own threshold for "a trend w
 _SWING_CHOPPY_ADX = 20.0                 # Wilder: below 20 is choppy/range-bound; 20-25 is ambiguous
 _SWING_MIN_EFFICIENCY_RATIO = 0.30       # Kaufman ER — how much of the path actually went somewhere
 _HIGH_GAP_SHARE = 0.35                   # >35% of total movement happening overnight = gap/news-driven name
+# "Is today unusual for THIS stock" thresholds — own-history percentile/ratio,
+# never a fixed cross-sectional level, since these exist specifically to
+# catch when a stock's SYSTEMIC (20-day-average) screen result doesn't match
+# its TODAY-specific liquidity/volatility state.
+_TRANSIENT_RVOL_HIGH = 1.5                # today's volume >= 1.5x its own 20d norm
+_TRANSIENT_ATR_PCTL_HIGH = 0.80           # today's ATR% in the top 20% of its own trailing year
+_TRANSIENT_RVOL_LOW = 0.5                 # today's volume <= half its own 20d norm
+_TRANSIENT_ATR_PCTL_LOW = 0.20            # today's ATR% in the bottom 20% of its own trailing year
 
 
 def trade_style_fit(
@@ -27,6 +35,10 @@ def trade_style_fit(
     gap_share_of_range: float | None,
     adx14: float | None,
     efficiency_ratio: float | None = None,
+    atr_pct_percentile_252d: float | None = None,
+    rvol_20d: float | None = None,
+    pct_from_52w_high: float | None = None,
+    pct_from_52w_low: float | None = None,
 ) -> dict:
     """Should this stock be DAY TRADED or SWING TRADED? — a suitability screen
     from daily bars, with one hard limitation stated up front rather than
@@ -83,6 +95,38 @@ def trade_style_fit(
 
     day_verdict = "UNKNOWN" if not day_checks else ("TRADABLE_INTRADAY" if all(day_checks) else "NOT_LIQUID_ENOUGH_INTRADAY")
 
+    # --- Combine systemic screen with TODAY's own-history-relative state --
+    # The checks above are 20-day AVERAGES — they say whether this stock is
+    # GENERICALLY day-tradable, not whether today specifically matches or
+    # breaks that pattern. This cross-checks the two rather than reporting
+    # them as unrelated facts: a stock that fails the generic floor can have
+    # an unusual today (a catalyst spike); a stock that passes generically
+    # can have an unusually quiet today. Both are flagged explicitly as
+    # TODAY-only observations — they do NOT change day_verdict, which stays
+    # the honest systemic read; conflating a one-day event with a stable
+    # trait would be exactly the kind of false precision this system avoids.
+    transient_high = (
+        rvol_20d is not None and rvol_20d >= _TRANSIENT_RVOL_HIGH
+        and atr_pct_percentile_252d is not None and atr_pct_percentile_252d >= _TRANSIENT_ATR_PCTL_HIGH
+    )
+    transient_low = (
+        rvol_20d is not None and rvol_20d <= _TRANSIENT_RVOL_LOW
+        and atr_pct_percentile_252d is not None and atr_pct_percentile_252d <= _TRANSIENT_ATR_PCTL_LOW
+    )
+    if day_verdict == "NOT_LIQUID_ENOUGH_INTRADAY" and transient_high:
+        reasons_day.append(
+            f"TODAY IS UNUSUAL for this stock, though: volume is {rvol_20d:.1f}x its own 20-day norm and "
+            f"today's ATR% sits at the {atr_pct_percentile_252d:.0%} percentile of its own trailing year — "
+            "this specific session may be transiently day-tradable despite failing the generic floor above. "
+            "A one-day observation, not a change to the systemic verdict."
+        )
+    elif day_verdict == "TRADABLE_INTRADAY" and transient_low:
+        reasons_day.append(
+            f"TODAY IS UNUSUALLY QUIET for this stock, though: volume is only {rvol_20d:.1f}x its own 20-day "
+            f"norm and today's ATR% sits at just the {atr_pct_percentile_252d:.0%} percentile of its own "
+            "trailing year — the generic PASS above may not reflect today's actual conditions specifically."
+        )
+
     # --- Swing-horizon fit (the horizon this system actually models) ------
     swing_points = []
     if avg_dollar_volume is not None:
@@ -118,6 +162,18 @@ def trade_style_fit(
             f"Overnight gaps average {avg_overnight_gap_pct:.2f}%"
             + ("" if gap_ok else f" and are {gap_share_of_range:.0%} of all movement — holding through them is the main risk of this trade")
         )
+    # 52-week high/low proximity is DESCRIPTIVE trend-context, not a pass/
+    # fail gate (research is explicit that some swing styles want mid-range,
+    # not extension) — it sharpens WHY a GOOD/WORKABLE fit is trending
+    # toward a real level rather than just scoring, never counted in
+    # swing_points itself.
+    if pct_from_52w_high is not None and pct_from_52w_low is not None:
+        if pct_from_52w_high >= -3:
+            reasons_swing.append(f"Within {abs(pct_from_52w_high):.1f}% of its 52-week high — near a real structural level, the kind of context that tends to produce cleaner trend follow-through")
+        elif pct_from_52w_low <= 3:
+            reasons_swing.append(f"Within {pct_from_52w_low:.1f}% of its 52-week low — near a real structural level on the downside; a short here has room, but this is also where reversals cluster")
+        else:
+            reasons_swing.append(f"{abs(pct_from_52w_high):.0f}% below its 52-week high and {pct_from_52w_low:.0f}% above its 52-week low — mid-range, no nearby structural level either way")
 
     if not swing_points:
         swing_verdict = "UNKNOWN"

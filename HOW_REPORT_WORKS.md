@@ -129,6 +129,29 @@ two *separate* verdicts that are never blended into one score:
   *could* work the name, pending intraday confirmation, never that this
   system has an intraday edge. It has none, and has never tested for one.
 
+Both verdicts above are UNCONDITIONAL 20-day averages — they say whether a
+stock is GENERICALLY suited to a style, not whether TODAY specifically
+matches or breaks that pattern. `trade_style_fit()` cross-checks the
+systemic verdict against three own-history-relative signals from
+`tradability_stats()` (chosen from web research specifically into what
+sharpens the day-vs-swing decision, not direction prediction):
+
+- **Relative Volume** (`rvol_20d`) — today's volume vs. the mean of the
+  PRIOR 20 days (today excluded from its own baseline).
+- **ATR% percentile rank** (`atr_pct_percentile_252d`) — where today's
+  ATR% (ATR14/close) sits within its own trailing ~year of history.
+- **52-week high/low proximity** — descriptive trend-context only (near a
+  real structural level tends to produce cleaner follow-through), never a
+  pass/fail gate on swing_points.
+
+When a stock fails the generic day-trade floor but RVOL ≥ 1.5x AND ATR%
+percentile ≥ 80th simultaneously, a note flags today as a possible
+transient exception. When a stock passes generically but RVOL ≤ 0.5x AND
+ATR% percentile ≤ 20th, a note flags today as unusually quiet — the
+generic PASS may not hold today specifically. Neither case changes
+`day_trade_screen`'s systemic value; conflating a one-day event with a
+stable trait is exactly the false precision this system avoids.
+
 **VERDICT** — `processing/scoring.py:conviction_verdict()` combines
 everything above into one STRONG/MODERATE/WEAK/AVOID call, as an explicit
 point system rather than a black box:
