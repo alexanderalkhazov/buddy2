@@ -32,6 +32,7 @@ from processing.ml.universe import BENCHMARK, EXPANDED_UNIVERSE_V2
 from storage.cache import get_ohlcv
 
 _PHASE5_REPORT_PATH = ARTIFACT_DIR / "phase5_report.json"
+_TRADE_MECHANICS_REPORT_PATH = ARTIFACT_DIR / "trade_mechanics_backtest_report.json"
 
 # Bellwether tickers used as a stand-in for "market news" — no single feed
 # covers "everything happening in the market," so this blends broad-index
@@ -344,6 +345,68 @@ def generate(refresh: bool = False) -> str:
             f"Brier {_fmt(_rel.get('mean_oos_brier'))} vs. coin-flip baseline {_fmt(_rel.get('coin_flip_brier_baseline'))} "
             f"— status **{_rel.get('status', 'n/a')}**. Ranked across {_pred.get('n_tickers_scored', 0)} tickers, all 13 US equity sectors."
         )
+
+        try:
+            _tm = json.loads(_TRADE_MECHANICS_REPORT_PATH.read_text())
+        except Exception:
+            _tm = None
+        if _tm:
+            _tm_long, _tm_short = _tm.get("long", {}), _tm.get("short", {})
+            lines.append(
+                "\n**Does the entry/stop/TP1 mechanics itself actually work?** (a separate, walk-forward "
+                "backtest of the exact ranking+ATR-levels chain below — not sector AUC again)"
+            )
+            def _pct(v):
+                return "n/a" if v is None else f"{v * 100:.1f}%"
+
+            lines += _kv_table(
+                [
+                    (
+                        "LONG: win rate (TP1 vs stop, resolved trades)",
+                        f"{_pct(_tm_long.get('win_rate_of_resolved'))} "
+                        f"({_tm_long.get('n_wins', 'n/a')}W/{_tm_long.get('n_losses', 'n/a')}L of {_tm_long.get('n_resolved', 'n/a')} resolved, "
+                        f"{_tm_long.get('n_timeout', 'n/a')} timed out)",
+                    ),
+                    ("**LONG: expectancy per trade (R-multiples, before costs)**", f"**{_fmt(_tm_long.get('expectancy_r_per_trade'))}R**"),
+                    (
+                        "SHORT: win rate (TP1 vs stop, resolved trades)",
+                        f"{_pct(_tm_short.get('win_rate_of_resolved'))} "
+                        f"({_tm_short.get('n_wins', 'n/a')}W/{_tm_short.get('n_losses', 'n/a')}L of {_tm_short.get('n_resolved', 'n/a')} resolved, "
+                        f"{_tm_short.get('n_timeout', 'n/a')} timed out)",
+                    ),
+                    ("**SHORT: expectancy per trade (R-multiples, before costs)**", f"**{_fmt(_tm_short.get('expectancy_r_per_trade'))}R**"),
+                ]
+            )
+            _short_r = _tm_short.get("expectancy_r_per_trade")
+            _long_r = _tm_long.get("expectancy_r_per_trade")
+            lines.append(
+                "\n*Methodology: for each walk-forward OOS rebalance date, the top-3-predicted-sector's "
+                "highest-technical-composite member ticker (LONG) / lowest (SHORT) is picked — the same "
+                "logic that ranks the tables below — and its ATR entry/stop/TP1 (processing/scoring.py) is "
+                "walked forward day-by-day against REAL subsequent price bars to see which was hit first. "
+                "expectancy_r_per_trade = win_rate×1.5R − (1−win_rate)×1R, the R-multiples TP1/stop use by "
+                "construction. No transaction costs, slippage, or gap-past-stop fills are modeled — real "
+                "expectancy is worse than shown, never better."
+                + (
+                    f" **The SHORT side's measured expectancy is NEGATIVE ({_fmt(_short_r)}R/trade)** — this "
+                    "system's short mechanics would have LOST money on this historical sample even before "
+                    "real-world costs, not merely 'unvalidated.' Weight the SHORT candidates above accordingly."
+                    if isinstance(_short_r, (int, float)) and _short_r < 0
+                    else ""
+                )
+                + (
+                    f" The LONG side's measured expectancy is positive ({_fmt(_long_r)}R/trade) on this sample — "
+                    "a real but small-N (few hundred trades, ~3 years) result, not a guarantee."
+                    if isinstance(_long_r, (int, float)) and _long_r >= 0
+                    else ""
+                )
+            )
+        else:
+            lines.append(
+                "\n*Trade-mechanics backtest not yet run this session — run "
+                "`python -m processing.ml.trade_mechanics_backtest` to generate it. Until then, the entry/"
+                "stop/TP1 levels below are unvalidated arithmetic, not a backtested rule.*"
+            )
 
         lines.append("\n## TOP LONG CANDIDATES")
         lines.append("| # | Ticker | Sector | P(top-3) | Entry | Stop | TP1 | RSI14 | Tech. Composite | Long Score |")

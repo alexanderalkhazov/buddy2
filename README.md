@@ -71,6 +71,26 @@ That's the whole CLI — one command, no arguments needed.
    checklist, Sector Leaders, Indices, and Crypto snapshots, and a final
    Reliability & Limitations table.
 
+## Does the entry/stop/TP1 mechanics actually work?
+
+A separate walk-forward backtest (`processing/ml/trade_mechanics_backtest.py`)
+answers this directly, rather than only reporting sector-level AUC: for each
+historical OOS rebalance date, it picks the same ticker the report's own
+ranking would have picked, computes the same ATR entry/stop/TP1, and walks
+forward through REAL subsequent price bars to see which was hit first.
+
+**LONG**: 47.1% win rate (TP1 vs. stop) over 435 resolved trades (~3 years) →
+**+0.18R per trade before costs** — a real, if modest and small-sample,
+positive result.
+**SHORT**: 31.6% win rate over 418 resolved trades → **-0.21R per trade
+before costs** — measurably negative, not merely "unvalidated." The report
+now states this plainly next to the short candidates rather than only
+flagging them as unvalidated.
+
+Re-run it yourself with `python -m processing.ml.trade_mechanics_backtest`
+(regenerates `storage/models/trade_mechanics_backtest_report.json`, which
+`ui/market_report.py` reads).
+
 ## The one thing that's actually validated: `sector_prediction_model`
 
 A calibrated gradient-boosting + logistic-regression ensemble predicting

@@ -52,7 +52,25 @@ utilities, materials, communication services, real estate):
    (`processing/scoring.py:trade_levels()`, ATR-based).
 5. The top 5 by each score become the **TOP LONG CANDIDATES** / **TOP
    SHORT CANDIDATES** — printed right after the model's own measured OOS
-   reliability (AUC/Brier vs. a coin-flip baseline).
+   reliability (AUC/Brier vs. a coin-flip baseline), which is itself
+   immediately followed by the trade-mechanics backtest below.
+
+**Does the mechanics itself work, separate from sector AUC?**
+`processing/ml/trade_mechanics_backtest.py` answers this directly rather
+than leaving it as an open question: for each historical OOS rebalance
+date in the SAME walk-forward folds `sector_prediction_model.py:evaluate()`
+uses, it picks the exact ticker this ranking logic would have picked (the
+top-3-predicted sector's highest-technical-composite member for LONG,
+lowest for SHORT), computes the same ATR entry/stop/TP1
+(`processing/scoring.py:trade_levels()`), and walks forward day-by-day
+through REAL subsequent price bars to see whether TP1 or the stop was hit
+first. Measured result (~3 years, walk-forward OOS): **LONG 47.1% win rate
+/ +0.18R expectancy per trade before costs** (435 resolved trades) — a
+real, small-sample positive result — versus **SHORT 31.6% win rate /
+-0.21R expectancy** (418 resolved trades) — measurably negative, not
+merely "unvalidated." The report states both numbers plainly, right next
+to the candidate tables they describe, rather than only as a disclaimer.
+Re-run with `python -m processing.ml.trade_mechanics_backtest`.
 
 ---
 
