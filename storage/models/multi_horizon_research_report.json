@@ -1,0 +1,85 @@
+{
+  "results": {
+    "classification": {
+      "1": {
+        "horizon_days": 1,
+        "target": "classification",
+        "n_rows": 2717,
+        "n_folds": 3,
+        "mean_auc": 0.5304,
+        "mean_brier": 0.1772,
+        "coin_flip_brier": 0.1775,
+        "status": "NO_DEMONSTRATED_EDGE"
+      },
+      "5": {
+        "horizon_days": 5,
+        "target": "classification",
+        "n_rows": 2704,
+        "n_folds": 3,
+        "mean_auc": 0.5857,
+        "mean_brier": 0.1753,
+        "coin_flip_brier": 0.1775,
+        "status": "PASS"
+      },
+      "20": {
+        "horizon_days": 20,
+        "target": "classification",
+        "n_rows": 2665,
+        "n_folds": 3,
+        "mean_auc": 0.5896,
+        "mean_brier": 0.1758,
+        "coin_flip_brier": 0.1775,
+        "status": "PASS"
+      },
+      "60": {
+        "horizon_days": 60,
+        "target": "classification",
+        "n_rows": 2561,
+        "n_folds": 3,
+        "mean_auc": 0.6068,
+        "mean_brier": 0.1748,
+        "coin_flip_brier": 0.1775,
+        "status": "PASS"
+      }
+    },
+    "regression": {
+      "1": {
+        "horizon_days": 1,
+        "target": "regression",
+        "n_rows": 2717,
+        "n_folds": 3,
+        "mean_rank_ic": -0.0113,
+        "mean_mae_pct": 0.8287,
+        "status": "NO_DEMONSTRATED_EDGE"
+      },
+      "5": {
+        "horizon_days": 5,
+        "target": "regression",
+        "n_rows": 2704,
+        "n_folds": 3,
+        "mean_rank_ic": 0.0274,
+        "mean_mae_pct": 1.9978,
+        "status": "NO_DEMONSTRATED_EDGE"
+      },
+      "20": {
+        "horizon_days": 20,
+        "target": "regression",
+        "n_rows": 2665,
+        "n_folds": 3,
+        "mean_rank_ic": 0.1036,
+        "mean_mae_pct": 4.0325,
+        "status": "PASS"
+      },
+      "60": {
+        "horizon_days": 60,
+        "target": "regression",
+        "n_rows": 2561,
+        "n_folds": 3,
+        "mean_rank_ic": 0.177,
+        "mean_mae_pct": 7.1922,
+        "status": "PASS"
+      }
+    }
+  },
+  "note": "Research extension, not a production change: tests whether sector-rotation predictability differs by horizon (1/5/20/60 trading days) and whether a direct excess-return regression target (Ridge, Spearman rank IC) is more or less stable than the production 20D top-3-of-13 classification target (GBM+LR ensemble, AUC/Brier). Same feature set and walk-forward machinery as the production model. Does NOT retrain or replace sector_prediction_model.py's 20D classifier."
+}
