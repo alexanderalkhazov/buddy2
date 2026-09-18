@@ -166,6 +166,51 @@ def ichimoku_cloud_position(close: float, senkou_a: float | None, senkou_b: floa
     return "in_cloud"
 
 
+def tradability_stats(df: pd.DataFrame, window: int = 20) -> pd.DataFrame:
+    """Liquidity / range / gap measurements used to judge WHICH TRADE STYLE a
+    stock suits — all computed from daily bars only, which is exactly the
+    limitation that matters here (see processing/scoring.py:trade_style_fit).
+
+    - avg_dollar_volume: close * volume, averaged — the standard liquidity
+      screen. Day trading needs far more of it than swing trading, because
+      intraday entries/exits pay the spread repeatedly.
+    - avg_daily_range_pct: mean (high - low) / close. From daily bars this is
+      the FULL-SESSION range, i.e. the theoretical maximum a perfectly-timed
+      intraday trade could capture — NOT the range actually available to a
+      real day trader, who cannot buy the low and sell the high. Treat it as
+      an upper bound on intraday opportunity, never as expected profit.
+    - overnight_gap_pct: mean |open - prev_close| / prev_close. This is the
+      part of a stock's movement that happens while the market is CLOSED —
+      it is unreachable for a day trader (who is flat overnight) and is pure
+      unhedgeable risk for a swing trader (who holds through it).
+    - gap_share_of_range: what fraction of total movement happens overnight
+      rather than intraday. High values mean the stock mostly moves on
+      news/gaps, which argues against day trading it and raises the risk of
+      holding it overnight.
+    """
+    close, high, low, open_ = df["close"], df["high"], df["low"], df["open"]
+    prev_close = close.shift()
+
+    out = pd.DataFrame(index=df.index)
+    out["dollar_volume"] = close * df["volume"]
+    out["avg_dollar_volume"] = out["dollar_volume"].rolling(window).mean()
+    out["daily_range_pct"] = (high - low) / close * 100
+    out["avg_daily_range_pct"] = out["daily_range_pct"].rolling(window).mean()
+    out["gap_pct"] = (open_ - prev_close).abs() / prev_close * 100
+    out["avg_overnight_gap_pct"] = out["gap_pct"].rolling(window).mean()
+
+    total_move = out["avg_daily_range_pct"] + out["avg_overnight_gap_pct"]
+    out["gap_share_of_range"] = (out["avg_overnight_gap_pct"] / total_move).where(total_move > 0)
+
+    # Kaufman Efficiency Ratio: net directional travel / total path length over
+    # the window. 1.0 = a perfectly straight move, near 0 = pure whipsaw. It is
+    # the standard daily-bar proxy for whether a trend is clean enough to hold.
+    net_move = (close - close.shift(window)).abs()
+    path_length = close.diff().abs().rolling(window).sum()
+    out["efficiency_ratio"] = (net_move / path_length).where(path_length > 0)
+    return out
+
+
 def enrich(df: pd.DataFrame) -> pd.DataFrame:
     """Attach all indicator columns to a copy of the OHLCV frame."""
     out = df.copy()
@@ -187,6 +232,7 @@ def enrich(df: pd.DataFrame) -> pd.DataFrame:
     out = out.join(ichimoku(out))
     out = out.join(chandelier_exit(out))
     out["cci20"] = cci(out)
+    out = out.join(tradability_stats(out))
     return out
 
 
@@ -232,6 +278,12 @@ class PriceSnapshot:
     chandelier_long_stop: float | None = None
     chandelier_short_stop: float | None = None
     cci20: float | None = None
+    # Trade-style suitability inputs (daily-bar tradability stats).
+    avg_dollar_volume: float | None = None
+    avg_daily_range_pct: float | None = None
+    avg_overnight_gap_pct: float | None = None
+    gap_share_of_range: float | None = None
+    efficiency_ratio: float | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -392,6 +444,11 @@ def snapshot(ticker: str, df: pd.DataFrame) -> PriceSnapshot:
         chandelier_long_stop=_f(row["chandelier_long_stop"]),
         chandelier_short_stop=_f(row["chandelier_short_stop"]),
         cci20=_f(row["cci20"]),
+        avg_dollar_volume=_f(row["avg_dollar_volume"]),
+        avg_daily_range_pct=_f(row["avg_daily_range_pct"]),
+        avg_overnight_gap_pct=_f(row["avg_overnight_gap_pct"]),
+        gap_share_of_range=_f(row["gap_share_of_range"]),
+        efficiency_ratio=_f(row["efficiency_ratio"]),
         technical_composite=technical_composite_score(
             rsi14=_f(row["rsi14"]),
             stoch_k=_f(row["stoch_k"]),

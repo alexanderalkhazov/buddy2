@@ -86,6 +86,30 @@ and reports an earnings-proximity severity tier
 jump past a stop with no fill available at that level, so this flags when
 that risk is live.
 
+**DAY TRADE OR SWING TRADE?** — `processing/scoring.py:trade_style_fit()`
+takes six daily-bar tradability inputs computed by
+`processing/indicators.py:tradability_stats()` (20-day average dollar
+volume, average daily range %, average overnight gap %, the gap's share of
+total movement, and the Kaufman Efficiency Ratio) plus ADX14, and returns
+two *separate* verdicts that are never blended into one score:
+
+- **Swing fit** (`GOOD` / `WORKABLE` / `POOR`) — this is the horizon the
+  system actually models, since `sector_prediction_model` targets
+  20-trading-day forward returns. It checks liquidity for a multi-day
+  hold, trend presence (ADX ≥ 25 trending, < 20 choppy, 20–25 ambiguous —
+  Wilder's own bands), path cleanliness (Efficiency Ratio ≥ 0.30), and
+  overnight gap exposure, which is the main structural risk of holding
+  through sessions.
+- **Day-trade candidacy screen** (`TRADABLE_INTRADAY` /
+  `NOT_LIQUID_ENOUGH_INTRADAY`) — liquidity ≥ $20M/day, average daily
+  range ≥ 1.5%, price ≥ $5. This is a *screen, not a signal*, and the
+  report prints that caveat every single time. The system holds daily
+  bars only; bid/ask spread, intraday RVOL, premarket activity, and
+  opening-range behavior — the things that actually decide whether a day
+  trade works — are all unmeasurable here. A pass means intraday traders
+  *could* work the name, pending intraday confirmation, never that this
+  system has an intraday edge. It has none, and has never tested for one.
+
 Each section closes with the same honest reminder: the sector-level
 probability is the validated part; the indicator/news reasoning is real,
 live-computed context, not a second backtested signal.

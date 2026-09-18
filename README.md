@@ -51,6 +51,18 @@ That's the whole CLI — one command, no arguments needed.
      SUPPORTS / CONFLICTS WITH / NEUTRAL call against the direction.
    - **WHEN** — earnings-proximity risk from the ticker's real next
      earnings date (a gap can jump past a stop with no fill available).
+   - **DAY TRADE OR SWING TRADE?** — a suitability verdict computed from
+     daily-bar tradability stats: 20-day average dollar volume, average
+     daily range %, average overnight gap %, the gap's share of total
+     movement, ADX14 (Wilder's own 25/20 trending/choppy thresholds), and
+     the Kaufman Efficiency Ratio (how much of the last 20 days' total
+     travel became net directional movement). The swing verdict is the
+     horizon this system actually models — `sector_prediction_model`
+     targets 20-trading-day returns. The day-trade line is a *candidacy
+     screen only, pending intraday confirmation*, and says so in the same
+     breath: this system holds no intraday data and has never tested
+     anything at an intraday horizon, so a pass means day traders **could**
+     work the stock, never that the system thinks you should.
 3. **Supporting data** — Market Regime (index trend, VIX, a 7-indicator
    technical composite, a plain market-health label), Macro Context
    (Treasury yields, FRED CPI/GDP/unemployment + daily credit spreads,
@@ -103,8 +115,9 @@ ui/           market_report.py — the report itself: ranking, why/when/how
               per candidate, and all supporting-data sections. Pure
               Markdown formatting, zero LLM calls.
 processing/   indicators (RSI/MACD/Bollinger/Stochastic/ADX/Ichimoku/CCI/
-              Chandelier Exit), scoring (ATR trade levels, earnings-
-              proximity risk), regime, macro aggregation, bundle assembly,
+              Chandelier Exit, plus tradability stats + Kaufman Efficiency
+              Ratio), scoring (ATR trade levels, earnings-proximity risk,
+              day-vs-swing trade-style fit), regime, macro aggregation, bundle assembly,
               and ml/ (the five research phases: dataset builders, labels,
               leakage tests, training, sector index/dataset construction,
               the sector_prediction_model, the experiment registry)

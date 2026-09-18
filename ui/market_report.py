@@ -292,6 +292,15 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 5) -> dict:
                     "ichimoku_cloud_position": s.ichimoku_cloud_position,
                     "technical_composite": tc,
                     "trend": s.trend,
+                    "trade_style": scoring.trade_style_fit(
+                        last_price=s.last,
+                        avg_dollar_volume=s.avg_dollar_volume,
+                        avg_daily_range_pct=s.avg_daily_range_pct,
+                        avg_overnight_gap_pct=s.avg_overnight_gap_pct,
+                        gap_share_of_range=s.gap_share_of_range,
+                        adx14=s.adx14,
+                        efficiency_ratio=s.efficiency_ratio,
+                    ),
                     "long_score": round(p_top3 + nudge, 4),
                     "short_score": round((1 - p_top3) - nudge, 4),
                     "long_entry": long_levels.get("entry"),
@@ -427,6 +436,21 @@ def generate(refresh: bool = False) -> str:
                         lines.append(f"- Earnings timing unknown: {when_result.get('note', '')}")
                 else:
                     lines.append(f"- Earnings timing unavailable this run: {when_result.get('error', 'unknown error')}.")
+
+                style = r.get("trade_style") or {}
+                if style:
+                    lines.append("\n**DAY TRADE OR SWING TRADE?**")
+                    lines.append(f"- **Verdict: {style['primary_recommendation']}** — {style['rationale']}")
+                    lines.append(f"- Swing-horizon fit: **{style['swing_fit']}**")
+                    for reason in style.get("swing_reasons", []):
+                        lines.append(f"  - {reason}")
+                    lines.append(
+                        f"- Day-trade *candidacy* screen (liquidity + realized range, pending intraday "
+                        f"confirmation): **{style['day_trade_screen']}**"
+                    )
+                    for reason in style.get("day_trade_reasons", []):
+                        lines.append(f"  - {reason}")
+                    lines.append(f"  - *{style['day_trade_caveat']}*")
 
                 lines.append(
                     "\n*This candidate's ranking is driven mainly by the sector-level probability above "
