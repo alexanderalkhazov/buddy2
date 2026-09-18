@@ -1306,4 +1306,55 @@ def generate(refresh: bool = False) -> str:
         "underlying data. No interpretation step is required or expected.*"
     )
 
+    lines.append(_ai_handoff_prompt())
+
     return "\n".join(lines)
+
+
+def _ai_handoff_prompt() -> str:
+    """Layer 3, as this module's own docstring calls it: interpretation left
+    for the user to run through any chatbot. This is that prompt — a copy-
+    paste block for a SEPARATE AI session (this system stays zero-LLM; the
+    prompt below is text output, not a call this code makes itself). It
+    instructs the reading AI to EXTRACT, never invent, from the report
+    above it — the report is deterministic and already carries every
+    number a final order needs; the only new work asked of the AI is
+    formatting and respecting the report's own AVOID gate."""
+    return (
+        "\n---\n"
+        "## Prompt for another AI: turn this report into orders\n\n"
+        "*Paste everything above this line, plus the instructions below, into a separate AI chat "
+        "(ChatGPT, Claude, etc.). This report is zero-LLM — every number above is fetched or "
+        "computed by code, never invented — this final step is optional and up to you.*\n\n"
+        "```\n"
+        "You are given a deterministic trading research report (pasted above this prompt). Read it "
+        "and produce a final, execution-ready order list. Hard rules:\n\n"
+        "1. EXTRACT ONLY — never invent a ticker, price, or fact not stated in the report. Every "
+        "Entry/Stop/TP1 value must come directly from the report's TOP LONG CANDIDATES / TOP SHORT "
+        "CANDIDATES tables or that candidate's own HOW section. If a number isn't in the report, "
+        "write \"not stated\" rather than estimating it.\n"
+        "2. RESPECT THE VERDICT GATE — skip any candidate whose VERDICT is AVOID entirely, even if "
+        "its own indicators look good. AVOID means the report's own walk-forward backtest measured "
+        "NEGATIVE expectancy for that exact direction's mechanics; that overrides individual "
+        "technicals. If EVERY candidate in a direction is AVOID, say so plainly (e.g. \"No qualifying "
+        "SHORT candidates this run\") instead of picking one anyway.\n"
+        "3. For each remaining candidate, output a row with:\n"
+        "   - Ticker and direction (BUY / SELL SHORT)\n"
+        "   - Entry order: a LIMIT order at the report's Entry price (that price is the latest "
+        "available daily close, not a live quote — note this explicitly, and flag that a market "
+        "order would fill at whatever the live price actually is, not this stale figure)\n"
+        "   - Stop-loss order: a STOP-MARKET order at the report's Stop price\n"
+        "   - Take-profit order: a LIMIT order at the report's TP1 price (mention TP2 as an optional "
+        "second target if the report gives one)\n"
+        "   - One line citing WHY, quoting the report's own VERDICT and its top 1-2 reasons — do not "
+        "add reasoning the report didn't already state\n"
+        "4. State the report's own measured reliability alongside the list (the AUC/Brier from "
+        "\"Model reliability\" and the LONG/SHORT expectancy in R from the trade-mechanics backtest "
+        "section) — every candidate here comes from a system with a real but modest edge, not a "
+        "guarantee, and the final output should say so in the same breath as the order list, not "
+        "bury it in a disclaimer.\n"
+        "5. This is not financial advice and you are not a licensed advisor — say so once, briefly, "
+        "then give the table. No account size or risk tolerance is known here, so do not suggest "
+        "position sizes or share counts; that decision is the user's alone.\n"
+        "```"
+    )

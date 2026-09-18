@@ -95,6 +95,15 @@ That's the whole CLI — one command, no arguments needed.
    13-sector ranking table with the machine-computed research-validation
    checklist, Sector Leaders, Indices, and Crypto snapshots, and a final
    Reliability & Limitations table.
+4. **A prompt for another AI, at the very end** — the report's own "Layer
+   3" hand-off: a copy-paste block for a *separate* AI chat (this system
+   stays zero-LLM; nothing here calls an LLM itself) instructing it to
+   turn the tables above into a final execution-ready order list —
+   entry as a limit order, stop as a stop-market order, take-profit as a
+   limit order — while extracting only numbers already in the report
+   (never inventing one) and respecting the report's own AVOID gate (a
+   candidate the trade-mechanics backtest measured negative expectancy
+   for stays excluded, even if it looks fine on paper).
 
 ## Does the entry/stop/TP1 mechanics actually work?
 
