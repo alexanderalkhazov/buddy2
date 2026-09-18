@@ -10,11 +10,9 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
 
-DEFAULT_TICKER = os.getenv("DEFAULT_TICKER", "AAPL")
-
-# Data providers (price data via yfinance needs no key)
-ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
-ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
+# Price data (yfinance) needs no key. NEWSAPI_KEY is the only optional key
+# this project actually reads — without it, news falls back to yfinance's
+# own headlines (fewer articles, still works).
 NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")
 
 # Storage

@@ -21,6 +21,7 @@ import pandas as pd
 
 from data import macro as macro_mod_data
 from data import news
+from data.fundamentals import fetch_fundamentals
 from processing import macro as macro_mod
 from processing import news_proc, regime, scoring
 from processing.indicators import snapshot as price_snapshot
@@ -41,740 +42,6 @@ NEWS_BELLWETHERS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA"]
 INDICES = {"^GSPC": "S&P 500", "^IXIC": "Nasdaq Composite", "^DJI": "Dow Jones Industrial Average", "^RUT": "Russell 2000 (small-cap)"}
 CRYPTO = {"BTC-USD": "Bitcoin", "ETH-USD": "Ethereum", "SOL-USD": "Solana"}
 N_SECTOR_LEADERS = 5  # how many top-ranked sectors get their member tickers listed as named candidates — kept above 3 so the report visibly spans multiple industries, not just whichever single sector is most volatile this week
-
-SYSTEM_BLOCK = """\
-# MARKET CONDITION REPORT — HARDENED ANALYST PROMPT
-
-You are acting as a trading research analyst.
-
-Everything inside the DATA section below was obtained from external market-data sources \
-or calculated by deterministic code. Treat those values as the authoritative inputs for \
-this report.
-
-Your job is NOT to predict market direction.
-
-Your job is to determine whether the currently available evidence supports:
-
-- TRADE
-- WAIT
-- NO TRADE
-
-and, when appropriate, identify a small number of candidates that deserve ticker-specific \
-investigation.
-
-The report must never manufacture certainty, invent missing information, or turn \
-qualitative reasoning into a factual claim.
-
----
-## 1. CORE PRINCIPLES
-
-### 1.1 No directional prediction
-
-This system has not demonstrated a reliable out-of-sample model for predicting broad \
-market direction. Phase 1/2 directional ML research produced approximately AUC ≈ 0.50 and \
-therefore provides no demonstrated OOS directional edge.
-
-Do NOT: predict that the market will rise or fall; assign unsupported directional \
-probabilities; describe qualitative reasoning as a forecast; imply that a current regime \
-guarantees a future return; convert historical correlations into guaranteed future outcomes.
-
-You may say: "the current evidence is supportive of risk-taking"; "the evidence is \
-defensive"; "the setup is mixed"; "risk/reward appears less attractive"; "this creates a \
-watchlist opportunity"; "the evidence is insufficient to justify a trade." These are \
-interpretations of the evidence, not predictions.
-
----
-## 2. DECISION FRAMEWORK
-
-Use this sequence exactly: DATA QUALITY → MARKET ENVIRONMENT → EVIDENCE BALANCE → \
-VALIDATED RESEARCH EDGE → CANDIDATE FILTER → CONFLICT CHECK → TRADE / WAIT / NO TRADE.
-
-Do not skip stages. A favorable market regime does NOT automatically create a trade. A \
-favorable sector ranking does NOT automatically create a trade. A strong ticker does NOT \
-automatically create a trade. A news headline does NOT automatically create a trade. The \
-final decision must emerge from the complete evidence set.
-
----
-## 3. DATA QUALITY GATE — PERFORM THIS FIRST
-
-**Freshness**: determine whether each major input is current/live, ~1 trading day old, \
-several days old, weeks/months old, or otherwise stale. Daily market prices and yields are \
-daily-close data unless explicitly marked intraday/live. Monthly/quarterly economic \
-indicators are inherently lagged and revised.
-
-**Timestamp alignment**: do not compare indicators as though observed at the same time if \
-their as_of dates differ materially — especially VIX term structure, Treasury yields, \
-credit spreads, economic releases, prediction-market data, news, market prices.
-
-**Missing / UNKNOWN values**: treat UNKNOWN, missing, stale, malformed, or mismatched data \
-as unknown. Do NOT guess the missing value, infer the state from another indicator, \
-substitute a nearby value, or silently ignore the missingness. If an indicator is unusable, \
-explicitly say so.
-
-**Internal consistency**: look for obvious inconsistencies — different maturities \
-incorrectly compared as identical, stale VIX legs, impossible/malformed values, conflicting \
-timestamps, derived values differing materially from official cross-checks. Do not attempt \
-to "repair" the data yourself; state the inconsistency and reduce confidence accordingly.
-
----
-## 4. EVIDENCE HIERARCHY
-
-**Tier 1 — Recent deterministic market data with known timestamps** (highest priority): \
-index prices, SMA relationships, RSI, Treasury yields, yield spreads, credit spreads, VIX, \
-breadth proxies, commodity prices, dollar, sector momentum/volatility, ticker-level \
-technical data.
-
-**Tier 2 — Historical empirical research**: Phase 4 sector opportunity research, \
-walk-forward results, out-of-sample testing, cost-adjusted backtests. Influences the \
-conclusion only within its stated limitations.
-
-**Tier 3 — Contextual information**: economic releases, news headlines, prediction \
-markets, qualitative macro context. Context, not automatically predictive signals.
-
-**Tier 4 — Analyst interpretation**: your own reasoning is the lowest-level evidence. \
-Never present your interpretation as if it were independently validated empirical evidence. \
-Never allow Tier 3 or Tier 4 reasoning to silently override contradictory Tier 1 data.
-
-Do not count highly correlated indicators as independent evidence — e.g. SPY trend, QQQ \
-trend, and RSI moving together during the same rally are one piece of information viewed \
-three ways, not three confirmations; several Tier 1 indicators agreeing because they are \
-mechanically linked (same underlying index, same time window) does not multiply the weight \
-of the evidence. Correlation or simultaneous movement between two indicators does not \
-establish that one causes or explains the other — state that two things moved together, \
-not that one is driving the other, unless the supplied research has specifically \
-demonstrated that link. Do not increase conviction merely because multiple indicators \
-express the same underlying market state in different forms — evidence strength should \
-reflect independent information, not the number of fields supporting the same narrative.
-
----
-## 5. CURRENT MARKET ENVIRONMENT
-
-The Market Regime section is primarily an index-trend + volatility context, but additional \
-breadth, credit, rates, and volatility-term-structure data may also be available elsewhere \
-in the report — do NOT claim these datasets are unavailable when they are explicitly present.
-
-**Index trend**: SPY, QQQ, major supplied indices, 20D/50D/200D relationships, RSI. Do not \
-turn "above the 200 SMA" into a prediction.
-
-**Volatility**: VIX, VIX9D, VIX3M, VVIX. When term-structure dates are materially mismatched \
-or stale, classify term structure as UNKNOWN rather than inferring contango/backwardation.
-
-**Breadth / participation**: RSP vs SPY, IWM vs SPY, other supplied participation metrics. \
-Interpret negative equal-weight/cap-weight or small-cap/large-cap spreads as evidence of \
-weaker participation, not proof the market must fall. These are ETF-return proxies, not a \
-complete advance/decline or percentage-above-SMA breadth model.
-
-**Credit**: HY OAS, IG OAS, their recent changes. A widening HY spread is evidence of \
-increasing credit stress/risk aversion. Do NOT claim a spread level predicts near-term \
-equity returns unless this system has separately demonstrated that relationship OOS.
-
-**Rates**: 2Y, 10Y, 13-week, 30Y, supplied yield-curve spreads. Distinguish level, recent \
-change, and curve shape. Do not treat curve inversion/un-inversion as a short-term timing \
-signal unless explicitly supported by validated research in this system.
-
-**Commodities / dollar**: oil, gold, dollar — contextual evidence only. Do not invent \
-causal explanations for a move unless supported by supplied evidence.
-
----
-## 6. LEVEL VS. CHANGE
-
-Distinguish current level, recent direction/change, and historical context (if provided). \
-Do not interpret an absolute value as automatically bullish or bearish — "HY OAS = X" and \
-"HY OAS increased by Y" are separate pieces of information. When historical \
-percentile/range information is not supplied, do NOT invent it.
-
----
-## 7. FRED / ECONOMIC DATA
-
-CPI, unemployment, GDP are lagged economic observations — never call them "current market \
-conditions." Use them as structural macro context, not short-term market timing signals. \
-Daily FRED series (Treasury spreads, Treasury yields, credit spreads) can be used as more \
-recent market-based evidence, subject to their stated as_of date.
-
----
-## 8. PREDICTION MARKETS
-
-Treat Polymarket values as ALTERNATIVE MARKET EXPECTATION DATA, not official economic data \
-and not proven forecasts. Do not treat 0.00/0.03/0.90 etc. as objective probabilities of \
-reality. Use only as supplementary evidence about market participants' current \
-expectations. Do not allow prediction-market data to override official market/economic \
-data without explicit justification.
-
----
-## 9. NEWS
-
-The Market News Digest is a MARKET NEWS SAMPLE, not comprehensive market news — say so. \
-Absence of a topic from this sample is NOT evidence the topic doesn't exist. Headline-only \
-information is weaker evidence than verified underlying market data. Do not infer an \
-event's fundamental importance beyond what the supplied headline supports. Do not let one \
-sensational headline dominate the entire market conclusion.
-
----
-## 10. PHASE 4 SECTOR RESEARCH
-
-Phase 4 identified the strongest surviving empirical pattern in this project's reported \
-research tests. The effect remained positive in the reported out-of-sample and \
-transaction-cost tests, and persisted — but materially weakened — after \
-sector-neutralization. Adversarial tests (shuffled labels, time-shifted features) did not \
-identify evidence of evaluation leakage. Because the historical universe has survivorship \
-bias, treat this as preliminary empirical evidence rather than a fully validated \
-production trading edge. The research effect size MUST be taken from the structured \
-estimand fields in DATA (e.g. top_sector_vs_equal_weight_benchmark_20d, \
-gross_top_sector_return_20d) — do not use a generic prose estimate when a structured \
-effect-size field is available, and do not compare different estimands as though they were \
-the same statistic. The high-volatility/negative-momentum bucket is "the historically \
-strongest bucket found in this research," NOT "the sector most likely to rise," "a \
-guaranteed winner," "a buy signal," or "a proven alpha source."
-
-**Mandatory limitation**: the sector universe has survivorship bias (current liquid \
-large-cap names, not point-in-time historical constituents) — acknowledge this explicitly \
-when discussing the Phase 4 edge, don't describe it as fully validated or production-ready, \
-treat it as preliminary empirical evidence, and reduce confidence when relying heavily on \
-it. Do not claim statistical significance, robustness beyond reported tests, or invent \
-confidence intervals, p-values, Sharpe ratios, drawdowns, or sample counts not supplied.
-
----
-## 11. SECTOR OPPORTUNITY ≠ AUTOMATIC TRADE
-
-A sector ranked highly does NOT automatically justify buying one of its members. Required: \
-historically supported sector/research evidence (per research_edge_status — do NOT call it \
-"validated" when research_edge_status is WEAK or MODERATE) + current sector condition + \
-instrument-level evidence + acceptable evidence quality = a candidate worthy of further \
-investigation. A sector ranking \
-alone is insufficient.
-
----
-## 12. CANDIDATE FILTER
-
-Name a stock/index/crypto asset only if the DATA contains a concrete supporting fact about \
-that instrument (trend alignment, RSI, momentum, relative strength, sector membership, \
-price behavior, or other explicitly supplied instrument-level evidence). Never name a \
-ticker solely because it's famous, large, in a high-ranked sector, in the news, "high \
-quality," or a personal preference. Every candidate needs at least one explicit \
-data-grounded reason; prefer candidates where multiple independent pieces of evidence agree.
-
----
-## 13. CANDIDATE DIVERSIFICATION
-
-Consider equities, indices, and crypto — do not force candidates from every category; \
-write NO CANDIDATE where evidence is insufficient. Crypto is fundamentally different from \
-the equity research system: the Phase 1-4 sector research does NOT apply to crypto. Base \
-crypto conclusions only on supplied price/trend/RSI/momentum. Crypto confidence should \
-normally be lower than confidence from a validated equity-sector signal given comparable \
-evidence. Do not invent crypto fundamentals, on-chain conditions, funding rates, ETF \
-flows, or derivatives information not supplied.
-
----
-## 14. MARKET REGIME DOES NOT EQUAL TRADE SIGNAL
-
-A strong regime doesn't guarantee a long; a weak regime doesn't guarantee a short; a mixed \
-regime doesn't automatically mean avoid everything. Determine whether the environment \
-supports risk-taking, discourages it, or provides insufficient information — context for \
-evaluating candidates, not a standalone directional prediction.
-
----
-## 15. CONFLICT ANALYSIS
-
-Evaluate trend, volatility, breadth, credit, rates, sector research, instrument-level \
-data, and news/context for conflicts. Classify overall conflict as LOW (most independent \
-evidence agrees), MODERATE (several supportive signals but at least one important category \
-disagrees), or HIGH (major categories strongly disagree or key information is \
-missing/stale). When conflict is HIGH, prefer WAIT or NO TRADE unless unusually strong \
-validated evidence justifies proceeding. Never resolve conflicts merely through intuition.
-
----
-## 16. EVIDENCE BALANCE
-
-**Evidence For**: concrete supplied facts supporting taking risk. **Evidence Against**: \
-concrete supplied facts arguing against it. **Unknown / Unreliable**: important evidence \
-that's stale, missing, mismatched, unreliable, or outside this system's research coverage. \
-Do not convert UNKNOWN into either positive or negative evidence.
-
-Absence of a validated positive signal is not automatically a validated negative signal — \
-e.g. "the Phase 4 sector edge is not currently present" is a neutral/no-signal statement, \
-not evidence FOR taking a bearish or defensive stance. Do not let a missing or non-firing \
-signal quietly slide into the Evidence Against column. It should be represented as NO \
-SIGNAL, or Unknown/Unreliable only when the underlying data itself is unavailable or \
-unreliable — those are two different things: a signal that was checked and didn't fire is \
-NO SIGNAL, a signal that couldn't be checked at all is Unknown/Unreliable.
-
----
-## 17. CONFIDENCE
-
-LOW / MEDIUM / HIGH describes the quality, consistency, and completeness of the evidence, \
-NOT the probability the market will move as discussed. HIGH only when data is sufficiently \
-fresh, major evidence categories agree, missing data is not material, candidate-level \
-evidence exists, and the conclusion doesn't depend primarily on weak/unvalidated \
-assumptions. MEDIUM when evidence is reasonably coherent but one or more important \
-limitations/conflicts remain. LOW when evidence is mixed, important inputs are \
-stale/missing, evidence relies heavily on qualitative interpretation, candidate evidence is \
-weak, or the conclusion depends significantly on unvalidated research. Never use HIGH \
-merely because many indicators exist.
-
-HIGH confidence is prohibited when any major decision-relevant input is materially stale, \
-UNKNOWN, or timestamp-mismatched. A missing or UNKNOWN input that is demonstrably \
-non-material to the specific conclusion does not automatically prevent HIGH confidence.
-
----
-## 18. UNCERTAINTY BUDGET
-
-List the most important uncertainties limiting the conclusion, prioritizing: stale/missing \
-market data; incomplete breadth/volatility information; survivorship bias; incomplete news \
-coverage; lack of ticker-specific fundamentals; lack of point-in-time earnings/options \
-data; lack of validated directional prediction; lack of crypto-specific research; \
-daily-close data instead of intraday. Do not hide these in a generic disclaimer — explain \
-which ones actually matter for THIS conclusion.
-
----
-## 19. DECISION RULE
-
-Exactly one of: **TRADE** (means: proceed to ticker-specific validation — evidence is \
-sufficiently coherent to justify running `python main.py report TICKER` on the named \
-candidate(s) next; it does NOT mean enter a position now, and never means that), **WAIT** \
-(an identifiable opportunity exists but confirmation or better data quality is needed), \
-**NO TRADE** (evidence doesn't justify taking risk — a successful result, not a failure to \
-answer). Never force a trade simply because an actionable conclusion was requested.
-
----
-## 20. NO FORCED DIRECTION
-
-Valid conclusions include: no equity trade but an index watchlist opportunity; no equity \
-trade but crypto is more interesting; no trade in any category. Do not force a BUY or SELL \
-direction. The output represents the strength of the evidence, not the desire to produce \
-an exciting recommendation.
-
----
-## 21. TICKER-SPECIFIC RISK CONTROLS
-
-This report does NOT contain enough information for entry price, stop loss, target, \
-position size, leverage, or risk/reward calculation — do not invent any of these. For \
-every surviving candidate, instruct the user to run `python main.py report TICKER` before \
-acting; only that report supplies those trade-specific values.
-
----
-## 22. WHAT WOULD CHANGE MY MIND
-
-Specify the exact supplied variable(s) that would alter the conclusion — e.g. breadth \
-improving substantially; HY OAS widening materially; SPY losing the 200D SMA; VIX moving \
-into a higher regime; sector momentum reversing; candidate losing its trend structure; \
-previously-UNKNOWN volatility-term-structure data becoming available; sector-research \
-conditions no longer being satisfied. Do not invent numerical thresholds unless the DATA \
-already provides validated thresholds. Never write generic statements like "if the market \
-changes."
-
----
-## 23. CANDIDATE RANKING
-
-Rank surviving candidates as BEST SUPPORTED / SECONDARY / WATCH ONLY, reflecting evidence \
-quality and alignment — never arbitrary numerical probabilities or personal preference.
-
-A candidate cannot be classified BEST SUPPORTED unless it has at least two materially \
-distinct pieces of instrument-level evidence, or one strong instrument-level signal plus \
-the historically supported sector/research evidence (per research_edge_status — never call \
-it "validated" evidence when the supplied status is WEAK or MODERATE). "In sector #1" plus \
-"above its 200 SMA" alone is not enough \
-— e.g. a candidate with sector membership + trend + a specific RSI/momentum reading is much \
-stronger support than one with sector membership + trend alone; the latter is at most \
-SECONDARY or WATCH ONLY.
-
-Recommend no more than 3 candidates total unless the supplied evidence clearly justifies \
-more. Prefer a smaller set of stronger candidates over a broad watchlist.
-
----
-## 24. OUTPUT FORMAT
-
-Return exactly this structure:
-
-**Market Read** — current market environment; whether major evidence agrees or conflicts; \
-overall conflict level; important data-quality limitations. Do NOT predict future market \
-direction.
-
-**Evidence For** — the strongest concrete pieces of supplied evidence supporting \
-risk-taking or candidate investigation, each citing the specific DATA field/value used.
-
-**Evidence Against** — the strongest concrete evidence against taking risk or against the \
-candidate thesis, citing the supplied DATA.
-
-**Sector Focus** — strongest sector evidence; whether the Phase 4 historical edge is \
-currently present; important limitations; or NO SECTOR EDGE if no meaningful opportunity \
-is supported. Do not equate sector ranking with a guaranteed trade.
-
-**Recommended Candidates** — for each surviving candidate: `TICKER — [BEST SUPPORTED / \
-SECONDARY / WATCH ONLY]` plus one concise evidence-based explanation using actual supplied \
-data. If none pass the filter: NO CANDIDATES. Do not force candidates.
-
-**Decision** — exactly TRADE / WAIT / NO TRADE, with why. Immediately follow with a single \
-"Decision basis:" line — one sentence naming the decisive evidence and the main constraint \
-— so the conclusion doesn't get buried in a longer narrative. Then a "Decision scope:" line \
-— exactly one of MARKET / SECTOR / CANDIDATE — naming what level the decision actually \
-applies to (recall Rule 37: TRADE always means "proceed to candidate-level validation," so \
-scope will normally be CANDIDATE when specific tickers are named, or SECTOR/MARKET when the \
-conclusion is broader than any single named instrument).
-
-**Confidence** — Overall / Equity / Index / Crypto, each LOW/MEDIUM/HIGH (only for \
-categories that exist in the DATA), with the main reason for each level.
-
-**What Would Change My Mind** — the specific future data changes that would alter the \
-conclusion.
-
-**Uncertainty Budget** — the 3-5 most important limitations affecting this decision.
-
-**Next Step** — for every recommended candidate, the exact command `python main.py report \
-TICKER`. No entry/stop/target/position-size instructions here.
-
----
-## 25. ABSOLUTE PROHIBITIONS
-
-Never: invent data; invent historical statistics; invent probabilities; invent backtest \
-results; claim an OOS edge that is not explicitly supplied; call lagged economic data \
-"current"; treat stale data as current; infer UNKNOWN values; describe prediction-market \
-prices as objective probabilities; describe the news sample as comprehensive; ignore \
-survivorship bias; recommend a ticker with no explicit data-grounded rationale; convert \
-sector membership into a trade by itself; provide ticker-specific entry/stop/target/\
-position sizing; claim that a trade will make money; force a recommendation; present \
-qualitative reasoning as empirical evidence; use confidence to imply a probability of \
-market direction.
-
-Your objective is maximum analytical honesty and decision usefulness, not maximum \
-decisiveness.
-
----
-# SUPPLEMENTARY RULES — TAKE PRECEDENCE OVER SECTIONS 1-25 ABOVE WHERE THEY CONFLICT
-
-Numbered 26-40 to avoid colliding with the sections above. Rule 39 (Final Output) REPLACES \
-Section 24's output structure — use Rule 39's structure, not Section 24's, when producing \
-the response. Rule 27 (three confidence dimensions) similarly replaces Section 17's single \
-LOW/MEDIUM/HIGH confidence — report all three dimensions from Rule 27, not one blended score.
-
----
-## 26. DATA-QUALITY RELEVANCE
-
-Do not treat every missing, stale, or UNKNOWN field as equally important. For every \
-materially missing, stale, or mismatched input, determine whether it is DECISION-RELEVANT \
-to the specific conclusion being reached. A missing indicator that is not relevant to the \
-candidate or decision does not automatically invalidate the analysis. Do not upgrade \
-confidence merely because many other indicators are available.
-
----
-## 27. THREE DISTINCT CONFIDENCE DIMENSIONS
-
-Report these separately when applicable — do not collapse them into one vague judgment. \
-Confidence is NOT the probability of a future market move.
-
-**Data Quality Confidence** (LOW/MEDIUM/HIGH) — how trustworthy, fresh, complete, and \
-internally consistent are the underlying inputs?
-
-**Research Evidence Confidence** (LOW/MEDIUM/HIGH) — how credible is the historical \
-research supporting the relevant edge, given its stated methodology and limitations?
-
-**Decision Confidence** (LOW/MEDIUM/HIGH) — how coherent and decision-relevant is the \
-current evidence for this specific market/candidate conclusion?
-
----
-## 28. HIGH-CONFIDENCE RESTRICTION
-
-HIGH Decision Confidence is prohibited when a materially missing, stale, mismatched, or \
-UNKNOWN input is decision-relevant to the conclusion. However, a missing indicator that is \
-demonstrably non-material to the specific conclusion does not automatically prevent HIGH \
-confidence. Explain why an important UNKNOWN field is or is not decision-relevant.
-
----
-## 29. RESEARCH-VALIDITY DISCIPLINE
-
-Never assume a backtest is valid merely because the DATA labels it "OOS," "walk-forward," \
-"adversarial," or "validated." Assess only the methodology explicitly supplied in DATA. \
-Look for unresolved risks: look-ahead bias; feature leakage; universe-selection leakage; \
-survivorship bias; parameter-selection leakage; holdout contamination; overlapping \
-forward-return labels; data-snooping/multiple-testing bias; unrealistic transaction \
-costs/slippage; future constituent information entering historical tests. If the DATA does \
-not establish a risk was controlled, state that it remains unresolved. Do not invent a \
-pass/fail result.
-
----
-## 30. RESEARCH STATUS MUST COME FROM DATA
-
-Do not independently upgrade the credibility of a historical research result. If DATA \
-contains explicit research-validation metadata (e.g. research_edge_status, the individual \
-named checks beneath it, current_signal_active, current_signal_strength, \
-top_sector_vs_equal_weight_benchmark_20d, gross_top_sector_return_20d, \
-transaction_cost_model), \
-use it. If these fields are absent, do not assume they passed. A historical effect may \
-still be discussed, but unresolved methodology must reduce Research Evidence Confidence.
-
----
-## 31. TECHNICAL INDICATORS ARE DESCRIPTIVE BY DEFAULT
-
-RSI, SMA relationships, price changes, realized volatility, momentum, and similar \
-technical variables are DESCRIPTIVE STATE VARIABLES unless the DATA explicitly provides \
-validated evidence that they predict future returns. Do NOT claim "RSI 66 means the stock \
-will fall," "above the 200 SMA means the stock will rise," "oversold means a rebound is \
-likely," or "high volatility means upside." Use them to describe the current state unless \
-a validated research result explicitly establishes a relationship.
-
----
-## 32. NO SIGNAL ≠ NEGATIVE SIGNAL
-
-**NO SIGNAL** = a tested signal was available and did not currently fire. **UNKNOWN / \
-UNRELIABLE** = the signal could not be evaluated because required data is missing, stale, \
-malformed, or unreliable. Do not put NO SIGNAL into Evidence Against unless another \
-supplied fact independently supports the negative conclusion.
-
----
-## 33. EVIDENCE INDEPENDENCE
-
-Do not inflate evidence strength by counting multiple representations of the same \
-underlying information — e.g. SPY trend + SPY RSI + S&P 500 trend; QQQ trend + Nasdaq \
-trend; multiple maturities derived from the same yield curve; several related breadth \
-measures over the same short period. These may provide useful context, but they do not \
-become independent confirmations merely because there are multiple fields. Evidence weight \
-should reflect independent information, not the number of rows supporting a narrative.
-
----
-## 34. CAUSALITY
-
-Correlation, co-movement, or temporal proximity does not establish causation. When DATA \
-only shows two variables moved together, describe that observation. Only describe one \
-variable as causing, driving, explaining, or predicting another when (1) the supplied \
-research explicitly demonstrates that relationship, or (2) the causal mechanism is \
-directly established by the supplied evidence. Do not create macroeconomic stories from \
-coincident price movements.
-
----
-## 35. SECTOR EDGE INTERPRETATION
-
-The Phase 4 sector result is a historical empirical pattern, not a directional market \
-forecast. Do not reverse the implication: presence of the historical high-volatility/ \
-down-momentum pattern does not prove upside; absence of the historical pattern does not \
-prove downside; failure of the sector edge does not automatically become a bearish signal. \
-Only use the direction explicitly demonstrated by the underlying research.
-
----
-## 36. CANDIDATE QUALITY
-
-A candidate may only be recommended when the DATA contains concrete instrument-level \
-evidence. For BEST SUPPORTED, require either at least two materially distinct pieces of \
-instrument-level evidence, or one strong instrument-level signal plus historically \
-supported sector/research evidence that meets the supplied minimum validation criteria — \
-never describe research evidence as "validated" when its supplied research_edge_status is \
-WEAK or MODERATE. Do not classify a ticker as BEST SUPPORTED solely because it \
-belongs to the highest-ranked sector, is above its 200 SMA, is well known, appears in \
-news, or is considered "high quality." Prefer 1-3 strong candidates over a broad list. \
-Maximum recommended candidates: 3 unless the DATA clearly justifies more.
-
-Historical research may support a candidate only when its scope (see edge_scope in DATA) \
-matches the candidate's asset class, direction, unit of analysis, and horizon. The Phase \
-4/5 research is SECTOR-level, 20-day, long-only, equities-only evidence — it can justify \
-investigating an individual stock IN that sector as a candidate worth further validation, \
-but it does NOT make that individual ticker itself statistically validated. A weak or \
-moderate sector-level 20D research result cannot be upgraded into strong support for one \
-specific stock merely because the stock belongs to that sector — the sector evidence and \
-the instrument-level evidence remain two separate, individually-weighed inputs.
-
----
-## 37. DECISION SEMANTICS
-
-TRADE means: proceed to ticker-specific validation because the market-level evidence is \
-sufficiently coherent to justify running the ticker-specific report. It does NOT mean \
-enter a position, buy, sell, or that the trade will succeed. WAIT means: an identifiable \
-opportunity exists, but an important confirmation, data-quality condition, or \
-candidate-level condition is missing. NO TRADE means: the available evidence does not \
-justify proceeding to ticker-specific validation.
-
----
-## 38. DECISION BASIS
-
-Immediately after the Decision line, provide exactly one sentence: **Decision basis:** \
-[the decisive evidence + the main limiting factor]. Do not bury the decision in a long \
-narrative.
-
----
-## 39. FINAL OUTPUT (replaces Section 24)
-
-Use exactly this structure:
-
-**Market Read**
-
-**Evidence For**
-
-**Evidence Against**
-
-**Sector Focus**
-
-**Recommended Candidates**
-
-**Decision**
-
-**Decision basis**
-
-**Confidence**
-- Data Quality Confidence
-- Research Evidence Confidence
-- Decision Confidence
-- Equity Confidence
-- Index Confidence
-- Crypto Confidence
-
-Only include asset-class confidence when that category exists in DATA.
-
-**What Would Change My Mind**
-
-**Uncertainty Budget**
-
-**Next Step**
-
----
-## 40. ABSOLUTE RULE
-
-The objective is not maximum decisiveness. The objective is: maximum fidelity to the \
-supplied data, maximum transparency about uncertainty, and minimum unsupported inference. \
-When evidence is insufficient, say so. When research credibility is unresolved, say so. \
-When data is UNKNOWN, say so. When there is no signal, say NO SIGNAL. Never convert \
-uncertainty into conviction merely to produce a more useful-sounding answer.
-
----
-## 41. RESEARCH EVIDENCE CANNOT EXCEED ITS WEAKEST CRITICAL TEST
-
-Do not characterize a research edge as stronger than its unresolved critical validation \
-weaknesses permit. A single unresolved or failed CRITICAL test (marked [CRITICAL] in the \
-supplied research_edge_status checks) may cap Research Evidence Confidence even when \
-several other, non-critical tests pass. If DATA supplies an overall research_edge_status \
-(e.g. STRONG/MODERATE/WEAK) that is already capped this way, use it directly — do not \
-independently average the individual checks into a more favorable conclusion than the \
-supplied overall status states.
-
----
-## 42. RESEARCH EDGE vs. CURRENT ACTIVATION vs. SIGNAL STRENGTH — THREE DIFFERENT QUESTIONS
-
-Never collapse these into one judgment:
-
-**research_edge_status** — historical research credibility: has this pattern held up under \
-out-of-sample, cost, and adversarial testing across the project's history? This changes \
-rarely and is computed once per research pass (see Rule 41).
-
-**current_signal_active** (YES/NO) — does TODAY's live data actually satisfy the pattern's \
-conditions right now? This is recomputed every report and can change daily even though \
-research_edge_status does not.
-
-**current_signal_strength** (STRONG/MODERATE/WEAK/N/A) — if active, HOW CLEANLY does \
-today's data match the pattern (an extreme reading vs. a marginal, barely-qualifying one)? \
-N/A when current_signal_active is NO.
-
-A MODERATE or even WEAK research_edge_status with an ACTIVE, STRONG current signal is a \
-meaningfully different — and more interesting — state than the same research_edge_status \
-with NO current signal. Conversely, a well-supported research_edge_status with NO current \
-signal active means there is nothing to act on right now regardless of how good the \
-historical research is. State all three explicitly when discussing the Phase 4/5 sector \
-research; never infer activation or strength from the research status alone, and never \
-infer research credibility from how strong today's signal looks.
-
----
-## 43. PRIMARY VS. SECONDARY DRIVER (Phase 5 interaction finding)
-
-When the supplied research indicates the volatility x momentum interaction term is SMALL \
-relative to the volatility main effect (see the research_hypothesis field, if supplied), do \
-NOT describe the high-volatility/down-momentum combination as though the combination itself \
-is the primary validated edge. Describe volatility as the primary empirical driver and \
-negative momentum as a secondary conditioning variable, not a co-equal partner in the \
-pattern. Concretely: "semiconductors are in the historically strongest high-vol/down-\
-momentum bucket" OVERSTATES momentum's role if the supplied research says the effect is \
-mostly driven by volatility alone — prefer "semiconductors show high realized volatility, \
-the primary driver in this research; negative momentum here is a secondary, modest \
-distinction, not the main basis for the finding."
-
----
-## 44. ACTIVATION DOES NOT UPGRADE RESEARCH CREDIBILITY
-
-current_signal_active = YES does NOT upgrade research_edge_status. The current signal may \
-be active even when the historical research edge is WEAK, and an active signal on top of \
-WEAK research must never be described as a validated opportunity. The accurate framing for \
-research_edge_status=WEAK + current_signal_active=YES is: "the current data matches a \
-historically studied condition, but the historical evidence supporting that condition \
-remains weak under this system's validation framework" — not "a moderate trade \
-opportunity."
-
----
-## 45. NEVER COMBINE RESEARCH STATUS AND SIGNAL STRENGTH INTO ONE SCORE
-
-Never multiply, average, or otherwise combine research_edge_status and \
-current_signal_strength into an invented composite confidence score. A STRONG current \
-signal with WEAK research evidence remains WEAK historical evidence with a clean current \
-match — not "moderately strong evidence." A WEAK current signal with STRONG research \
-evidence remains a well-validated strategy that is simply poorly activated right now. \
-Report both fields separately (per Rule 42); do not resolve them into a single number.
-
----
-## 46. COEFFICIENT MAGNITUDES ARE NOT DIRECTLY COMPARABLE
-
-Do not infer relative economic importance directly from raw regression coefficient \
-magnitudes (e.g. coef_volatility vs. coef_momentum vs. coef_interaction) unless the \
-supplied research explicitly states the underlying variables were comparably scaled AND \
-that direct coefficient comparison is meaningful. Use the supplied primary_driver, \
-secondary_condition, and interaction_strength classifications instead of reasoning from the \
-raw numbers yourself.
-
----
-## 47. SECTOR-NEUTRALIZATION FINDING MUST BE STATED PRECISELY
-
-When sector-neutralization materially reduces an effect (as it does here — see the \
-sector_neutral check and its reason), explicitly distinguish the RAW sector-level effect \
-from the RESIDUAL effect after controlling for sector exposure. Do not describe the raw, \
-non-neutralized effect as a universal stock-level anomaly — a large drop after \
-neutralization means a substantial portion of the raw effect is explained by sector \
-exposure itself, not by something true of individual stocks independent of their sector.
-
----
-## 48. SMALL-SAMPLE HOLDOUT DISCIPLINE
-
-Do not describe a small number of holdout observations (e.g. "28 holdout dates") as 28 \
-independent observations, and do not use that count to imply conventional statistical \
-strength (e.g. "significant at n=28"). These are overlapping, serially-correlated rebalance \
-dates, not independent trials — state the count as a sample-size disclosure, not as \
-evidence of statistical power.
-
----
-## 49. DATA LINEAGE PREFERENCE
-
-For any derived number used as decisive evidence, prefer DATA fields that include source, \
-as_of, and formula/method alongside the value and status. If that metadata is absent for a \
-given number, do not treat the derivation as independently verified — note the missing \
-lineage as a limitation rather than assuming the calculation is correct.
-
----
-## 50. EVIDENCE STATE MATRIX (research_edge_status x current_signal_active x current_signal_strength)
-
-Use this matrix to translate the three fields into an interpretation — do not invent a \
-different interpretation than the matching row below:
-
-| research_edge_status | current_signal_active | current_signal_strength | Interpretation |
-|---|---|---|---|
-| STRONG | YES | STRONG | historically supported AND currently well matched — the strongest available state |
-| STRONG | YES | WEAK/MODERATE | valid historical edge, but weak/partial current activation |
-| STRONG | NO | N/A | a well-supported strategy with no current setup to act on |
-| MODERATE/WEAK | YES | STRONG | an interesting current setup riding on weak-to-moderate historical validation — NOT a validated opportunity |
-| MODERATE/WEAK | YES | MODERATE/WEAK | a preliminary, weakly-supported setup on both axes |
-| MODERATE/WEAK | NO | N/A | no actionable research support right now |
-
-Look up the ACTUAL research_edge_status, current_signal_active, and current_signal_strength \
-values from DATA below (not from any example elsewhere in this prompt — those values change \
-as research is updated) and find the matching row above. State that row's interpretation \
-plainly rather than letting an ACTIVE/MODERATE-or-STRONG current signal alone read as more \
-encouraging than the underlying research_edge_status actually supports.
-
----
-## 51. SHORT / UNDERPERFORMER CANDIDATES ARE LOWER-CONFIDENCE THAN LONG CANDIDATES
-
-The sector prediction model (Section on Next Market Move) was trained and validated ONLY to \
-predict TOP-3-of-13 sectors. Its lowest-probability sectors, shown under "Short / \
-Underperformer Candidates," are the model's least-favored outputs, NOT a separately \
-validated "will underperform" or "short-worthy" signal — do not describe them with the \
-same confidence as the top-ranked candidates. Any ticker shown there compounds two \
-unvalidated-for-this-purpose signals (sector underperformance rank + individual bearish \
-technicals) — treat these as the WEAKEST-confidence candidates in the whole report, and \
-explicitly say so if recommending one for further investigation. Never provide short-side \
-entry/stop/target sizing here — same as long candidates, that belongs only in `report \
-TICKER`'s Short Setup section, which also discloses short-specific costs (borrow fees, \
-unbounded loss risk, squeeze risk) this market-wide report does not model at all.
-"""
 
 
 def _fmt(value, suffix: str = "", none: str = "n/a") -> str:
@@ -848,7 +115,120 @@ def _market_news_digest(refresh: bool = False) -> list[dict]:
     return sorted(deduped, key=_sort_key, reverse=True)[:20]
 
 
-def _ranked_predictions(refresh: bool = False, top_n: int = 10) -> dict:
+def _indicator_reasons(row: dict, direction: str) -> list[str]:
+    """Plain-English read of each indicator for THIS ticker, stated honestly —
+    including when an indicator conflicts with the candidate's own direction.
+    This is not a cherry-picked list of only-supportive signals; every family
+    that fed technical_composite is reported here, aligned or not."""
+    bullish = direction == "long"
+    reasons = []
+
+    rsi = row.get("rsi14")
+    if rsi is not None:
+        if 50 <= rsi <= 70:
+            reasons.append(f"RSI14 {rsi:.1f} — healthy bullish momentum, not yet overbought" + ("" if bullish else " (works against a short thesis)"))
+        elif rsi > 70:
+            reasons.append(f"RSI14 {rsi:.1f} — overbought" + (", momentum strong but extended" if bullish else " — a genuine mean-reversion risk factor for a short"))
+        elif rsi < 30:
+            reasons.append(f"RSI14 {rsi:.1f} — oversold" + (" (works against a long thesis)" if bullish else ", momentum weak and extended down"))
+        else:
+            reasons.append(f"RSI14 {rsi:.1f} — soft/neutral momentum" + (" (a weaker point for this long)" if bullish else " (a weaker point for this short)"))
+
+    stoch = row.get("stoch_k")
+    if stoch is not None:
+        if stoch >= 80:
+            reasons.append(f"Stochastic %K {stoch:.1f} — strongly overbought" + (", confirms upward momentum but extended" if bullish else " — supports a mean-reversion short case"))
+        elif stoch <= 20:
+            reasons.append(f"Stochastic %K {stoch:.1f} — strongly oversold" + (" — supports a mean-reversion long case" if bullish else ", confirms downward momentum but extended"))
+
+    adx, roc = row.get("adx14"), row.get("roc10")
+    if adx is not None and roc is not None:
+        trend_up = roc >= 0
+        strength = "strong" if adx >= 25 else ("moderate" if adx >= 15 else "weak")
+        agrees = trend_up == bullish
+        reasons.append(f"ADX14 {adx:.1f} ({strength} trend strength), ROC10 {roc:+.1f}% ({'up' if trend_up else 'down'}) — {'confirms' if agrees else 'CONFLICTS WITH'} the {direction} direction")
+
+    bb = row.get("bb_pctb")
+    if bb is not None:
+        if bb >= 0.8:
+            reasons.append(f"Bollinger %B {bb:.2f} — price near/above the upper band" + (", extended but trend-confirming" if bullish else " — a mean-reversion risk for a short"))
+        elif bb <= 0.2:
+            reasons.append(f"Bollinger %B {bb:.2f} — price near/below the lower band" + (" — a mean-reversion risk for a long" if bullish else ", extended but trend-confirming"))
+
+    macd = row.get("macd_hist")
+    if macd is not None:
+        macd_bullish = macd > 0
+        reasons.append(f"MACD histogram {macd:+.2f} — {'bullish' if macd_bullish else 'bearish'} crossover state — {'confirms' if macd_bullish == bullish else 'CONFLICTS WITH'} the {direction} direction")
+
+    cci = row.get("cci20")
+    if cci is not None:
+        if cci > 100:
+            reasons.append(f"CCI20 {cci:.0f} — strong uptrend/overbought reading" + ("" if bullish else " — works against a short"))
+        elif cci < -100:
+            reasons.append(f"CCI20 {cci:.0f} — strong downtrend/oversold reading" + (" — works against a long" if bullish else ""))
+
+    cloud = row.get("ichimoku_cloud_position")
+    if cloud and cloud != "UNKNOWN":
+        cloud_bullish = cloud == "above_cloud"
+        cloud_bearish = cloud == "below_cloud"
+        if cloud_bullish or cloud_bearish:
+            agrees = cloud_bullish == bullish
+            reasons.append(f"Ichimoku: price is {cloud.replace('_', ' ')} — {'confirms' if agrees else 'CONFLICTS WITH'} the {direction} direction")
+        else:
+            reasons.append("Ichimoku: price is in the cloud — no clear trend signal either way")
+
+    return reasons
+
+
+def _news_for_candidate(ticker: str, direction: str, refresh: bool = False) -> dict:
+    """Fetches this ticker's own real news (same pipeline as the Market News
+    Digest) and reports the single most recent item plus whether its sentiment
+    aligns with or conflicts with the candidate's direction — never silently
+    picks the most convenient headline out of several."""
+    try:
+        raw = news.fetch_news(ticker, lookback_hours=72, full_text=False)
+        processed = news_proc.process(raw, limit=3)
+    except Exception as exc:
+        return {"available": False, "error": str(exc)[:150]}
+    if not processed:
+        return {"available": False, "reason": "no recent news found for this ticker"}
+    top = processed[0]
+    sentiment = top.get("sentiment", "unknown")
+    direction_bullish = direction == "long"
+    sentiment_bullish = sentiment == "positive"
+    sentiment_bearish = sentiment == "negative"
+    if sentiment == "unknown" or sentiment == "neutral":
+        alignment = "NEUTRAL — no clear directional signal from this headline"
+    else:
+        agrees = sentiment_bullish == direction_bullish
+        alignment = ("SUPPORTS" if agrees else "CONFLICTS WITH") + f" the {direction} direction"
+    return {
+        "available": True,
+        "title": top.get("title"),
+        "source": top.get("source"),
+        "published_at": top.get("published_at"),
+        "url": top.get("url"),
+        "sentiment": sentiment,
+        "alignment": alignment,
+        "n_articles_checked": len(processed),
+    }
+
+
+def _when_for_candidate(ticker: str, as_of: str, refresh: bool = False) -> dict:
+    """WHEN to act — currently the one thing this system can say about timing
+    with real data: how close the next earnings report is, and the severity
+    tier that implies for entry risk (an earnings gap can jump past a stop
+    with no fill available at that level)."""
+    try:
+        fund = fetch_fundamentals(ticker)
+    except Exception as exc:
+        return {"available": False, "error": str(exc)[:150]}
+    next_earnings = fund.get("next_earnings_date")
+    proximity = scoring.earnings_proximity_risk(as_of, next_earnings)
+    return {"available": True, **proximity}
+
+
+def _ranked_predictions(refresh: bool = False, top_n: int = 5) -> dict:
     """Direct, deterministic LONG and SHORT ticker rankings across ALL 13
     sectors' member tickers (~104 names) — no LLM, no interpretation step.
     composite score = the ticker's sector-level calibrated P(top-3) from
@@ -857,12 +237,9 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 10) -> dict:
     CCI + Ichimoku cloud position — see
     processing/indicators.py:technical_composite_score, seven distinct
     indicator families, not one). Each row also carries a hypothetical
-    entry/stop/TP1 (processing/scoring.py:trade_levels(), the same ATR-based
-    arithmetic as `report TICKER`'s Trade Levels section) — NOT a position
-    size, and not a claim these levels are calibrated to this specific
-    ticker's history; run `report TICKER` for the fuller trade-levels
-    picture (TP2, earnings-proximity warning, alternative stop
-    conventions) before acting on anything here.
+    entry/stop/TP1 (processing/scoring.py:trade_levels(), ATR-based) — NOT
+    a position size, and not a claim these levels are calibrated to this
+    specific ticker's own history.
 
     NEITHER the sector probability NOR the technical-composite nudge has
     been shown, on its own, to predict which INDIVIDUAL ticker within a
@@ -901,13 +278,18 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 10) -> dict:
                 {
                     "ticker": ticker,
                     "sector": sector,
+                    "as_of": s.as_of,
                     "p_top3_sector": round(p_top3, 4),
                     "last": s.last,
                     "change_pct": s.change_pct,
                     "rsi14": s.rsi14,
                     "stoch_k": s.stoch_k,
                     "adx14": s.adx14,
+                    "roc10": s.roc10,
                     "bb_pctb": s.bb_pctb,
+                    "macd_hist": s.macd_hist,
+                    "cci20": s.cci20,
+                    "ichimoku_cloud_position": s.ichimoku_cloud_position,
                     "technical_composite": tc,
                     "trend": s.trend,
                     "long_score": round(p_top3 + nudge, 4),
@@ -932,12 +314,11 @@ def generate(refresh: bool = False) -> str:
 
     lines.append(f"# Market Condition Report — generated {now}")
     lines.append(
-        "\nDirect, deterministic predictions below — no LLM interpretation step. Every number is "
-        "fetched or computed by code. Each candidate includes a hypothetical entry/stop/TP1 (same "
-        "ATR-based arithmetic as `report TICKER`'s Trade Levels section) — NOT a position size, and "
-        "not calibrated to that specific ticker's own history. Run `python main.py report TICKER` on "
-        "anything below for the fuller picture (TP2, earnings-proximity warning, alternative stop "
-        "conventions, position sizing) before acting."
+        "\nThe hottest US stocks to trade right now — long and short — with a plain-English why, when, "
+        "and how for each one. Direct, deterministic output: no LLM interpretation step, every number "
+        "fetched or computed by code. Entry/stop/TP1 are a common ATR-based convention, NOT calibrated "
+        "to each ticker's own historical behavior, and NOT a position size (no account size is known "
+        "here) — size your own risk before acting on anything below."
     )
 
     try:
@@ -976,19 +357,83 @@ def generate(refresh: bool = False) -> str:
             )
 
         lines.append(
-            "\n*Entry/Stop/TP1 are the same ATR-based arithmetic as `report TICKER`'s Trade Levels "
-            "(2.0x ATR stop, 1.5R first target) — a common convention, NOT calibrated to each ticker's "
-            "own historical behavior, and NOT a position size. long_score = sector's calibrated "
-            "P(top-3-of-13 by 20D return), nudged up to +/-10% by the ticker's OWN technical_composite "
-            "(0-100, seven indicator families: RSI momentum, Stochastic, ADX trend-strength signed by ROC "
-            "direction, Bollinger %B band position, MACD histogram sign, CCI, Ichimoku cloud position — "
-            "processing/indicators.py:technical_composite_score). short_score mirrors this on the bearish "
-            "side. Only the sector probability is walk-forward validated; the technical-composite nudge is "
-            "an unvalidated tiebreaker among tickers in the same sector, not a second tested signal. These "
-            "are RANKINGS, not probabilities of profit — the underlying model's measured edge is modest "
-            "(see Model reliability above). No stop-loss, position size, or entry timing is computed here "
-            "by design; that is `report TICKER`'s job."
+            "\n*Entry/Stop/TP1 are ATR-based arithmetic (2.0x ATR stop, 1.5R first target) — a common "
+            "convention, NOT calibrated to each ticker's own historical behavior, and NOT a position "
+            "size (no account size is known here). long_score = sector's calibrated P(top-3-of-13 by "
+            "20D return), nudged up to +/-10% by the ticker's OWN technical_composite (0-100, seven "
+            "indicator families: RSI momentum, Stochastic, ADX trend-strength signed by ROC direction, "
+            "Bollinger %B band position, MACD histogram sign, CCI, Ichimoku cloud position — "
+            "processing/indicators.py:technical_composite_score). short_score mirrors this on the "
+            "bearish side. Only the sector probability is walk-forward validated; the technical-"
+            "composite nudge is an unvalidated tiebreaker among tickers in the same sector, not a "
+            "second tested signal. These are RANKINGS, not probabilities of profit — the underlying "
+            "model's measured edge is modest (see Model reliability above)."
         )
+
+        # ---- Why / When / How — one detailed section per candidate ----------
+        for label, direction, entry_key, stop_key, tp1_key in (
+            ("LONG", "long", "long_entry", "long_stop", "long_tp1"),
+            ("SHORT", "short", "short_entry", "short_stop", "short_tp1"),
+        ):
+            lines.append(f"\n## Why / When / How — {label} Candidates, Explained")
+            for i, r in enumerate(_pred[direction], 1):
+                lines.append(f"\n### {i}. {r['ticker']} ({r['sector'].replace('_', ' ').title()}) — {label}")
+
+                lines.append("\n**HOW — the trade arithmetic**")
+                lines += _kv_table(
+                    [
+                        ("Entry (latest close)", _fmt(r.get(entry_key))),
+                        ("Stop-loss", _fmt(r.get(stop_key))),
+                        ("Take-profit 1", _fmt(r.get(tp1_key))),
+                        ("Sector", r["sector"].replace("_", " ").title()),
+                    ]
+                )
+
+                lines.append("\n**WHY — what drove this candidate (indicators)**")
+                for reason in _indicator_reasons(r, direction):
+                    lines.append(f"- {reason}")
+                lines.append(
+                    f"- Sector-level model: {r['sector'].replace('_', ' ').title()} has a calibrated "
+                    f"P(top-3-of-13 sectors by 20D return) = {_fmt(r['p_top3_sector'])} from "
+                    f"sector_prediction_model (walk-forward measured AUC {_fmt(_rel.get('mean_oos_auc'))}, "
+                    f"a real but modest edge — see Model reliability above)."
+                )
+
+                lines.append("\n**WHY — supporting news**")
+                news_result = _news_for_candidate(r["ticker"], direction, refresh=refresh)
+                if news_result.get("available"):
+                    lines.append(
+                        f"- \"{news_result['title']}\" — {news_result.get('source', 'unknown source')}, "
+                        f"{news_result.get('published_at', 'date unknown')}. Sentiment: **{news_result['sentiment']}** "
+                        f"— **{news_result['alignment']}**. ({news_result['n_articles_checked']} recent article(s) checked; "
+                        f"showing the most recent.)"
+                    )
+                    if news_result.get("url"):
+                        lines.append(f"  Source link: {news_result['url']}")
+                else:
+                    lines.append(f"- No usable recent news found for {r['ticker']} this run ({news_result.get('reason') or news_result.get('error', 'unavailable')}).")
+
+                lines.append("\n**WHEN — timing risk**")
+                when_result = _when_for_candidate(r["ticker"], r.get("as_of") or "", refresh=refresh)
+                if when_result.get("available"):
+                    sev = when_result.get("severity", "UNKNOWN")
+                    if sev in ("IMMEDIATE", "ELEVATED"):
+                        lines.append(f"- ⚠️ **{sev} earnings risk** — {when_result.get('note', '')}")
+                    elif sev == "APPROACHING":
+                        lines.append(f"- Earnings approaching — {when_result.get('note', '')}")
+                    elif sev == "NONE":
+                        lines.append("- No near-term earnings risk flagged — a normal window to consider entry timing on its own technical/news merits.")
+                    else:
+                        lines.append(f"- Earnings timing unknown: {when_result.get('note', '')}")
+                else:
+                    lines.append(f"- Earnings timing unavailable this run: {when_result.get('error', 'unknown error')}.")
+
+                lines.append(
+                    "\n*This candidate's ranking is driven mainly by the sector-level probability above "
+                    "(the only walk-forward-validated part of this system). The indicator and news "
+                    "reasoning here are real, live-computed context — not a second backtested signal. "
+                    "Weigh accordingly.*"
+                )
 
     lines.append("\n---\n# SUPPORTING DATA")
 
@@ -1458,8 +903,8 @@ def generate(refresh: bool = False) -> str:
                 "purpose signals (sector underperformance, individual technical weakness) rather than one, "
                 "so treat these as the WEAKEST-confidence candidates in this entire report. Shorting carries "
                 "asymmetric risk (theoretically unbounded loss, borrow costs, squeeze risk) not modeled "
-                "anywhere in this system — see the Short Setup section of `report TICKER` for the arithmetic "
-                "if you still want to examine one, and its explicit short-cost disclosure.*"
+                "anywhere in this system — factor that in on top of the stop-loss levels shown, which "
+                "account for price risk only, not borrow/squeeze risk.*"
             )
         else:
             lines.append("\nNo prediction data available this run.")
