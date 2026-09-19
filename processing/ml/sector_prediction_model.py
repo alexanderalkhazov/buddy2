@@ -207,7 +207,18 @@ def abstention_gate(p_top3_sector: float, calibration_table: list[dict] | None, 
         return {"has_edge": None, "reason": f"no OOS observations in this probability's calibration bucket ({bucket['predicted_range'] if bucket else 'n/a'}) — too sparse to assess"}
     if bucket.get("n", 0) < 15:
         return {"has_edge": None, "reason": f"only {bucket['n']} OOS observations in this bucket — too few to distinguish from the base rate either way"}
-    margin = bucket.get("actual_rate_margin") or 0.0
+    # actual_rate_margin is None specifically when _oos_calibration_table()
+    # found a DEGENERATE bucket (actual_rate exactly 0 or 1 — every
+    # observation the same way) — that's the sqrt(p(1-p)/n) formula
+    # returning 0 for a genuinely small/unlucky sample, not real certainty.
+    # Falling back to margin=0.0 here would be backwards: it would treat
+    # the LEAST reliable case (a degenerate proportion, usually from a tiny
+    # n) as having ZERO uncertainty, letting clears_margin_of_error pass
+    # trivially. This bucket's n>=15 already (checked above), so a
+    # degenerate rate at that size is a real, if unusual, result — treat
+    # its margin as genuinely unknown, not zero.
+    raw_margin = bucket.get("actual_rate_margin")
+    has_edge = bucket["actual_rate"] > base_rate
     # Point-estimate comparison, NOT margin-of-error-adjusted — deliberately
     # the same standard evaluate()'s own overall status=PASS check uses
     # (mean_auc > 0.55 is also a point estimate, not a CI test). An earlier
@@ -223,12 +234,15 @@ def abstention_gate(p_top3_sector: float, calibration_table: list[dict] | None, 
     # than a slightly looser gate. clears_margin_of_error is still reported
     # separately so a reader can see the difference between "a real, if
     # unremarkable, point estimate" and "a confidently separated one."
-    has_edge = bucket["actual_rate"] > base_rate
-    clears_margin = (bucket["actual_rate"] - margin) > base_rate
-    confidence = "clears its own margin of error (a more confident signal)" if clears_margin else (
-        "within its own margin of error (a real point-estimate difference, not a statistically decisive one)" if has_edge
-        else "at or below the base rate"
-    )
+    clears_margin = None if raw_margin is None else (bucket["actual_rate"] - raw_margin) > base_rate
+    if clears_margin is None:
+        confidence = "this bucket's hit rate is degenerate (0% or 100% of observations) so no valid margin-of-error estimate exists — treat as low-confidence regardless of the point estimate"
+    elif clears_margin:
+        confidence = "clears its own margin of error (a more confident signal)"
+    elif has_edge:
+        confidence = "within its own margin of error (a real point-estimate difference, not a statistically decisive one)"
+    else:
+        confidence = "at or below the base rate"
     return {
         "has_edge": has_edge,
         "clears_margin_of_error": clears_margin,
@@ -238,7 +252,8 @@ def abstention_gate(p_top3_sector: float, calibration_table: list[dict] | None, 
         "base_rate": base_rate,
         "reason": (
             f"OOS bucket {bucket['predicted_range']} actually hit {bucket['actual_rate']:.0%} of the time "
-            f"(±{margin:.0%}, n={bucket['n']}) vs. a {base_rate:.0%} base rate — {confidence}."
+            f"({'margin unavailable (degenerate rate)' if raw_margin is None else f'±{raw_margin:.0%}'}, "
+            f"n={bucket['n']}) vs. a {base_rate:.0%} base rate — {confidence}."
         ),
     }
 
