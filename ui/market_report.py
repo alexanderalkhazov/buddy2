@@ -662,8 +662,12 @@ def generate(refresh: bool = False) -> str:
             _expectancy_by_direction = {
                 d: _tm_expectancy.get(d, {}).get("expectancy_r_per_trade") for d in ("long", "short")
             }
+            _mean_days_held_by_direction = {
+                d: _tm_expectancy.get(d, {}).get("mean_days_held_resolved") for d in ("long", "short")
+            }
         except Exception:
             _expectancy_by_direction = {"long": None, "short": None}
+            _mean_days_held_by_direction = {"long": None, "short": None}
 
         # ---- Why / When / How — one detailed section per candidate ----------
         for label, direction, entry_key, stop_key, tp1_key in (
@@ -741,6 +745,37 @@ def generate(refresh: bool = False) -> str:
                         lines.append(f"- Earnings timing unknown: {when_result.get('note', '')}")
                 else:
                     lines.append(f"- Earnings timing unavailable this run: {when_result.get('error', 'unknown error')}.")
+
+                lines.append("\n**WHEN — entry and exit timing**")
+                lines.append(
+                    f"- **Entry**: at the next regular market session (9:30am–4:00pm ET) — this system holds "
+                    f"daily bars only, so it cannot recommend a specific intraday minute; the {_fmt(r.get(entry_key))} "
+                    "entry above is yesterday's close, not a live quote, so expect the actual fill to differ. "
+                    "A limit order at that price, or simply entering at the next open, are the two honest options "
+                    "this data supports — anything more precise (e.g. \"buy at 10:32am\") would be invented, not computed."
+                )
+                mean_days = _mean_days_held_by_direction.get(direction)
+                from processing.ml.trade_mechanics_backtest import MAX_HOLD_DAYS as _MAX_HOLD_DAYS
+
+                if mean_days is not None:
+                    lines.append(
+                        f"- **Exit**: automatically at Stop ({_fmt(r.get(stop_key))}) or TP1 ({_fmt(r.get(tp1_key))}) "
+                        "above, whichever a broker's standing stop/limit orders trigger first — those execute "
+                        "continuously during market hours, not at a fixed clock time. If NEITHER has been hit after "
+                        f"**~{mean_days:.0f} trading days** (the measured average time-to-resolution for this exact "
+                        f"direction's mechanics, from the trade-mechanics backtest above), the position has "
+                        "outlasted where most resolved trades in that backtest already went one way or the other — "
+                        f"worth a discretionary look. By **{_MAX_HOLD_DAYS} trading days** with neither level hit, "
+                        f"the backtest itself would have called this a TIMEOUT (not counted as a win or loss), which "
+                        "is this system's own definition of \"this setup didn't play out as expected\" — a "
+                        "data-derived checkpoint to reassess, not a hard rule to close the position."
+                    )
+                else:
+                    lines.append(
+                        f"- **Exit**: automatically at Stop ({_fmt(r.get(stop_key))}) or TP1 ({_fmt(r.get(tp1_key))}) "
+                        "above. Typical time-to-resolution is unavailable this run (trade-mechanics backtest not "
+                        "found) — run `python -m processing.ml.trade_mechanics_backtest` to generate it."
+                    )
 
                 style = r.get("trade_style") or {}
                 if style:
