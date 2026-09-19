@@ -718,8 +718,8 @@ def generate(refresh: bool = False) -> str:
                 lines.append("\n**WHY — what drove this candidate (indicators)**")
                 lines.append(
                     f"- **{n_confirm}/{n_confirm + n_conflict}** of the 10 technical indicator families "
-                    f"confirm this {direction} direction (all confirming ones agree with each other; "
-                    "conflicts, if any, are named below — nothing is cherry-picked out)."
+                    f"confirm this {direction} direction — technical_composite **{_fmt(r.get('technical_composite'))}/100**, "
+                    f"RSI14 **{_fmt(r.get('rsi14'))}** (conflicts, if any, are named below — nothing is cherry-picked out)."
                 )
                 for reason in _indicator_reasons(r, direction):
                     if "CONFLICTS WITH" in reason:
@@ -778,9 +778,12 @@ def generate(refresh: bool = False) -> str:
                         f"(swing-fit {style['swing_fit']}, day-trade candidacy {style['day_trade_screen']}). "
                         f"{style['rationale']}"
                     )
-                    anomalies = [r_ for r_ in style.get("day_trade_reasons", []) if "TODAY IS UNUSUAL" in r_]
-                    for a in anomalies:
-                        lines.append(f"- {a}")
+                    if style.get("swing_reasons"):
+                        lines.append(f"- Swing detail: {' · '.join(style['swing_reasons'])}")
+                    if style.get("day_trade_reasons"):
+                        lines.append(f"- Day-trade detail: {' · '.join(style['day_trade_reasons'])}")
+                    if style.get("day_trade_caveat"):
+                        lines.append(f"- *{style['day_trade_caveat']}*")
 
                 verdict = scoring.conviction_verdict(
                     direction=direction,
