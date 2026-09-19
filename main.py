@@ -30,7 +30,7 @@ def main() -> None:
 
     from ui.market_report import generate
 
-    with console.status("Building report… (no API calls, fetches macro/news/13 sector indices)"):
+    with console.status("Building report… (no LLM calls — real data fetches for prices/macro/news/13 sector indices)"):
         text = generate(refresh=args.refresh)
     print(text)
     if args.out:
