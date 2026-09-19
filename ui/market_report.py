@@ -1336,6 +1336,30 @@ def generate(refresh: bool = False) -> str:
             ("Indices research coverage", "Indices snapshot is raw price/trend/RSI only — same as crypto, not covered by the sector-rotation research"),
         ]
     )
+    # ---- Day Trade or Swing Trade? — quick-reference table -----------------
+    # r["trade_style"] is computed for every candidate inside _ranked_
+    # predictions(), before this loop even starts — reusing it here, not
+    # recomputing, so this table can never disagree with what each
+    # candidate's own detailed "DAY TRADE OR SWING?" section already says.
+    if not _pred.get("error"):
+        lines.append("\n## Day Trade or Swing Trade? — Quick Reference")
+        lines.append("| Ticker | Direction | Verdict | Swing-Fit | Day-Trade Candidacy |")
+        lines.append("|---|---|---|---|---|")
+        for direction_label, direction_key in (("LONG", "long"), ("SHORT", "short")):
+            for r in _pred.get(direction_key, []):
+                style = r.get("trade_style") or {}
+                lines.append(
+                    f"| {r['ticker']} | {direction_label} | **{style.get('primary_recommendation', 'n/a')}** | "
+                    f"{style.get('swing_fit', 'n/a')} | {style.get('day_trade_screen', 'n/a')} |"
+                )
+        lines.append(
+            "\n*SWING is the only horizon this system has walk-forward evidence for "
+            "(sector_prediction_model targets 20 trading days). Day-trade candidacy is a "
+            "liquidity/range SCREEN ONLY — never a signal or an intraday edge, since this system "
+            "holds no intraday data. Full reasoning for each is in that candidate's own "
+            "\"DAY TRADE OR SWING?\" section above.*"
+        )
+
     lines.append(
         "\n---\n*End of report. TOP LONG CANDIDATES and TOP SHORT CANDIDATES at the top are the direct "
         "output of this run; everything below them is supporting detail for anyone who wants to check the "
