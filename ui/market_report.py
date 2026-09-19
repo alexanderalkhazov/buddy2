@@ -127,57 +127,68 @@ def _market_news_digest(refresh: bool = False) -> list[dict]:
     return sorted(deduped, key=_sort_key, reverse=True)[:20]
 
 
-def _indicator_reasons(row: dict, direction: str) -> list[str]:
+def _indicator_reasons(row: dict, direction: str) -> list[tuple[str, bool]]:
     """Plain-English read of each indicator for THIS ticker, stated honestly —
     including when an indicator conflicts with the candidate's own direction.
     This is not a cherry-picked list of only-supportive signals; every family
-    that fed technical_composite is reported here, aligned or not."""
+    that fed technical_composite is reported here, aligned or not.
+
+    Returns (text, is_conflict) tuples, not plain strings — several
+    families phrase disagreement in prose that doesn't contain the literal
+    substring "CONFLICTS WITH" (e.g. RSI's "works against a short thesis",
+    CCI's "works against a long"), so a caller that filtered this output by
+    string-matching for "CONFLICTS WITH" would silently miss most of the
+    real conflicts (a bug caught by review, not by leakage tests or a clean
+    report run — this is exactly the "never guess a fact you already
+    computed" principle this project holds everywhere else, now applied
+    here too)."""
     bullish = direction == "long"
-    reasons = []
+    reasons: list[tuple[str, bool]] = []
 
     rsi = row.get("rsi14")
     if rsi is not None:
         if 50 <= rsi <= 70:
-            reasons.append(f"RSI14 {rsi:.1f} — healthy bullish momentum, not yet overbought" + ("" if bullish else " (works against a short thesis)"))
+            reasons.append((f"RSI14 {rsi:.1f} — healthy bullish momentum, not yet overbought" + ("" if bullish else " (works against a short thesis)"), not bullish))
         elif rsi > 70:
-            reasons.append(f"RSI14 {rsi:.1f} — overbought" + (", momentum strong but extended" if bullish else " — a genuine mean-reversion risk factor for a short"))
+            reasons.append((f"RSI14 {rsi:.1f} — overbought" + (", momentum strong but extended" if bullish else " — a genuine mean-reversion risk factor for a short"), not bullish))
         elif rsi < 30:
-            reasons.append(f"RSI14 {rsi:.1f} — oversold" + (" (works against a long thesis)" if bullish else ", momentum weak and extended down"))
+            reasons.append((f"RSI14 {rsi:.1f} — oversold" + (" (works against a long thesis)" if bullish else ", momentum weak and extended down"), bullish))
         else:
-            reasons.append(f"RSI14 {rsi:.1f} — soft/neutral momentum" + (" (a weaker point for this long)" if bullish else " (a weaker point for this short)"))
+            reasons.append((f"RSI14 {rsi:.1f} — soft/neutral momentum" + (" (a weaker point for this long)" if bullish else " (a weaker point for this short)"), False))
 
     stoch = row.get("stoch_k")
     if stoch is not None:
         if stoch >= 80:
-            reasons.append(f"Stochastic %K {stoch:.1f} — strongly overbought" + (", confirms upward momentum but extended" if bullish else " — supports a mean-reversion short case"))
+            reasons.append((f"Stochastic %K {stoch:.1f} — strongly overbought" + (", confirms upward momentum but extended" if bullish else " — supports a mean-reversion short case"), not bullish))
         elif stoch <= 20:
-            reasons.append(f"Stochastic %K {stoch:.1f} — strongly oversold" + (" — supports a mean-reversion long case" if bullish else ", confirms downward momentum but extended"))
+            reasons.append((f"Stochastic %K {stoch:.1f} — strongly oversold" + (" — supports a mean-reversion long case" if bullish else ", confirms downward momentum but extended"), bullish))
 
     adx, roc = row.get("adx14"), row.get("roc10")
     if adx is not None and roc is not None:
         trend_up = roc >= 0
         strength = "strong" if adx >= 25 else ("moderate" if adx >= 15 else "weak")
         agrees = trend_up == bullish
-        reasons.append(f"ADX14 {adx:.1f} ({strength} trend strength), ROC10 {roc:+.1f}% ({'up' if trend_up else 'down'}) — {'confirms' if agrees else 'CONFLICTS WITH'} the {direction} direction")
+        reasons.append((f"ADX14 {adx:.1f} ({strength} trend strength), ROC10 {roc:+.1f}% ({'up' if trend_up else 'down'}) — {'confirms' if agrees else 'CONFLICTS WITH'} the {direction} direction", not agrees))
 
     bb = row.get("bb_pctb")
     if bb is not None:
         if bb >= 0.8:
-            reasons.append(f"Bollinger %B {bb:.2f} — price near/above the upper band" + (", extended but trend-confirming" if bullish else " — a mean-reversion risk for a short"))
+            reasons.append((f"Bollinger %B {bb:.2f} — price near/above the upper band" + (", extended but trend-confirming" if bullish else " — a mean-reversion risk for a short"), not bullish))
         elif bb <= 0.2:
-            reasons.append(f"Bollinger %B {bb:.2f} — price near/below the lower band" + (" — a mean-reversion risk for a long" if bullish else ", extended but trend-confirming"))
+            reasons.append((f"Bollinger %B {bb:.2f} — price near/below the lower band" + (" — a mean-reversion risk for a long" if bullish else ", extended but trend-confirming"), bullish))
 
     macd = row.get("macd_hist")
     if macd is not None:
         macd_bullish = macd > 0
-        reasons.append(f"MACD histogram {macd:+.2f} — {'bullish' if macd_bullish else 'bearish'} crossover state — {'confirms' if macd_bullish == bullish else 'CONFLICTS WITH'} the {direction} direction")
+        agrees = macd_bullish == bullish
+        reasons.append((f"MACD histogram {macd:+.2f} — {'bullish' if macd_bullish else 'bearish'} crossover state — {'confirms' if agrees else 'CONFLICTS WITH'} the {direction} direction", not agrees))
 
     cci = row.get("cci20")
     if cci is not None:
         if cci > 100:
-            reasons.append(f"CCI20 {cci:.0f} — strong uptrend/overbought reading" + ("" if bullish else " — works against a short"))
+            reasons.append((f"CCI20 {cci:.0f} — strong uptrend/overbought reading" + ("" if bullish else " — works against a short"), not bullish))
         elif cci < -100:
-            reasons.append(f"CCI20 {cci:.0f} — strong downtrend/oversold reading" + (" — works against a long" if bullish else ""))
+            reasons.append((f"CCI20 {cci:.0f} — strong downtrend/oversold reading" + (" — works against a long" if bullish else ""), bullish))
 
     cloud = row.get("ichimoku_cloud_position")
     if cloud and cloud != "UNKNOWN":
@@ -185,29 +196,29 @@ def _indicator_reasons(row: dict, direction: str) -> list[str]:
         cloud_bearish = cloud == "below_cloud"
         if cloud_bullish or cloud_bearish:
             agrees = cloud_bullish == bullish
-            reasons.append(f"Ichimoku: price is {cloud.replace('_', ' ')} — {'confirms' if agrees else 'CONFLICTS WITH'} the {direction} direction")
+            reasons.append((f"Ichimoku: price is {cloud.replace('_', ' ')} — {'confirms' if agrees else 'CONFLICTS WITH'} the {direction} direction", not agrees))
         else:
-            reasons.append("Ichimoku: price is in the cloud — no clear trend signal either way")
+            reasons.append(("Ichimoku: price is in the cloud — no clear trend signal either way", False))
 
     mfi = row.get("mfi14")
     if mfi is not None:
         if mfi > 80:
-            reasons.append(f"MFI14 {mfi:.1f} — strong volume-weighted overbought reading" + (", confirms upward pressure but extended" if bullish else " — supports a mean-reversion short case"))
+            reasons.append((f"MFI14 {mfi:.1f} — strong volume-weighted overbought reading" + (", confirms upward pressure but extended" if bullish else " — supports a mean-reversion short case"), not bullish))
         elif mfi < 20:
-            reasons.append(f"MFI14 {mfi:.1f} — strong volume-weighted oversold reading" + (" — supports a mean-reversion long case" if bullish else ", confirms downward pressure but extended"))
+            reasons.append((f"MFI14 {mfi:.1f} — strong volume-weighted oversold reading" + (" — supports a mean-reversion long case" if bullish else ", confirms downward pressure but extended"), bullish))
 
     aroon_osc = row.get("aroon_oscillator")
     if aroon_osc is not None and abs(aroon_osc) >= 50:
         aroon_bullish = aroon_osc > 0
         agrees = aroon_bullish == bullish
-        reasons.append(f"Aroon Oscillator {aroon_osc:+.0f} — a recent new {'high' if aroon_bullish else 'low'} (recency, not magnitude, of the extreme) — {'confirms' if agrees else 'CONFLICTS WITH'} the {direction} direction")
+        reasons.append((f"Aroon Oscillator {aroon_osc:+.0f} — a recent new {'high' if aroon_bullish else 'low'} (recency, not magnitude, of the extreme) — {'confirms' if agrees else 'CONFLICTS WITH'} the {direction} direction", not agrees))
 
     keltner = row.get("keltner_pctk")
     if keltner is not None:
         if keltner >= 1.0:
-            reasons.append(f"Keltner %K {keltner:.2f} — price above the ATR-based upper band" + (", confirms a real breakout (not just a std-dev outlier)" if bullish else " — an extended move against a short thesis"))
+            reasons.append((f"Keltner %K {keltner:.2f} — price above the ATR-based upper band" + (", confirms a real breakout (not just a std-dev outlier)" if bullish else " — an extended move against a short thesis"), not bullish))
         elif keltner <= 0.0:
-            reasons.append(f"Keltner %K {keltner:.2f} — price below the ATR-based lower band" + (" — an extended move against a long thesis" if bullish else ", confirms a real breakdown (not just a std-dev outlier)"))
+            reasons.append((f"Keltner %K {keltner:.2f} — price below the ATR-based lower band" + (" — an extended move against a long thesis" if bullish else ", confirms a real breakdown (not just a std-dev outlier)"), bullish))
 
     return reasons
 
@@ -721,9 +732,9 @@ def generate(refresh: bool = False) -> str:
                     f"confirm this {direction} direction — technical_composite **{_fmt(r.get('technical_composite'))}/100**, "
                     f"RSI14 **{_fmt(r.get('rsi14'))}** (conflicts, if any, are named below — nothing is cherry-picked out)."
                 )
-                for reason in _indicator_reasons(r, direction):
-                    if "CONFLICTS WITH" in reason:
-                        lines.append(f"- {reason}")
+                for reason_text, is_conflict in _indicator_reasons(r, direction):
+                    if is_conflict:
+                        lines.append(f"- {reason_text}")
                 lines.append(
                     f"- Sector model: {r['sector'].replace('_', ' ').title()} P(top-3-of-13, 20D) = "
                     f"{_fmt(r['p_top3_sector'])} (AUC {_fmt(_rel.get('mean_oos_auc'))} — see Model reliability above)."
