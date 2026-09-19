@@ -56,6 +56,15 @@ That's the whole CLI — one command, no arguments needed.
      flagged separately when it reads as an earnings beat/miss headline
      specifically (post-earnings-announcement drift is a real, if
      contested-for-large-caps, anomaly, distinct from generic sentiment).
+   - **WHY (SEC filings)** — that ticker's own real, recent 8-K/10-Q/10-K
+     filings direct from EDGAR (primary-source disclosure, not third-party
+     reporting), each with a direct link to the actual document — matched
+     by the company's real CIK via SEC's own submissions API, not a
+     keyword/full-text search (an earlier version used EDGAR's full-text
+     search endpoint and returned relevance-ranked false positives from
+     unrelated companies with filings up to 20 years old; fixed to use the
+     per-company submissions feed, genuinely newest-first and correctly
+     attributed).
    - **WHEN** — earnings-proximity risk from the ticker's real next
      earnings date (a gap can jump past a stop with no fill available).
    - **VERDICT** — STRONG/MODERATE/WEAK/AVOID, an explicit, inspectable
@@ -256,8 +265,8 @@ processing/   indicators (RSI/MACD/Bollinger/Stochastic/ADX/Ichimoku/CCI/
               leakage tests, training, sector index/dataset construction,
               the sector_prediction_model, the experiment registry)
 data/         prices (yfinance), news, polymarket, fundamentals, macro
-              (FRED), edgar — each source reduced to a compact dict, no
-              raw payloads leak past this layer
+              (FRED), edgar (SEC filings) — each source reduced to a
+              compact dict, no raw payloads leak past this layer
 storage/      DuckDB cache (prices, news) + models/ (trained ML artifacts,
               experiment log, phase reports)
 tests/        leakage tests for the ML pipeline

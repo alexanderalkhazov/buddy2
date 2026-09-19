@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from data import macro as macro_mod_data
+from data import edgar, macro as macro_mod_data
 from data import news
 from data.fundamentals import fetch_fundamentals
 from processing import macro as macro_mod
@@ -349,6 +349,22 @@ def _news_for_candidate(ticker: str, direction: str, refresh: bool = False) -> d
         "n_articles_checked": len(processed),
         "is_earnings_surprise": news_proc.is_earnings_surprise_headline(top.get("title", ""), top.get("summary", "")),
     }
+
+
+def _filings_for_candidate(ticker: str) -> dict:
+    """This ticker's own recent SEC filings (8-K/10-Q/10-K), real primary-
+    source material-event/periodic filings — distinct from news headlines,
+    which are third-party reporting ABOUT a company; a filing is the
+    company's own disclosure, directly from EDGAR. Not every ticker has a
+    CIK mapping (ETFs, most non-US-listed names) — that's a normal, non-
+    error case, reported as such rather than silently omitted."""
+    try:
+        filings = edgar.recent_filings(ticker, limit=3)
+    except Exception as exc:
+        return {"available": False, "error": str(exc)[:150]}
+    if not filings:
+        return {"available": False, "reason": "no recent 8-K/10-Q/10-K filings found (or this ticker has no SEC CIK mapping — common for ETFs/non-US listings)"}
+    return {"available": True, "filings": filings}
 
 
 def _when_for_candidate(ticker: str, as_of: str, refresh: bool = False) -> dict:
@@ -752,6 +768,15 @@ def generate(refresh: bool = False) -> str:
                     )
                 else:
                     lines.append(f"- No usable recent news found this run ({news_result.get('reason') or news_result.get('error', 'unavailable')}).")
+
+                filings_result = _filings_for_candidate(r["ticker"])
+                lines.append("**WHY — recent SEC filings** (primary-source, the company's own disclosure — not third-party reporting)")
+                if filings_result.get("available"):
+                    for f in filings_result["filings"]:
+                        link = f" [Source]({f['url']})" if f.get("url") else ""
+                        lines.append(f"- {f['form']}, filed {f['filed']}.{link}")
+                else:
+                    lines.append(f"- {filings_result.get('reason') or filings_result.get('error', 'unavailable')}.")
 
                 when_result = _when_for_candidate(r["ticker"], r.get("as_of") or "", refresh=refresh)
                 sev = when_result.get("severity", "UNKNOWN") if when_result.get("available") else "UNKNOWN"
