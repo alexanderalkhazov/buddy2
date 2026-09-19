@@ -113,13 +113,24 @@ historical OOS rebalance date, it picks the same ticker the report's own
 ranking would have picked, computes the same ATR entry/stop/TP1, and walks
 forward through REAL subsequent price bars to see which was hit first.
 
-**LONG**: 47.1% win rate (TP1 vs. stop) over 435 resolved trades (~3 years) →
+**LONG**: 47.2% win rate (TP1 vs. stop) over 430 resolved trades (~3 years) →
 **+0.18R per trade before costs** — a real, if modest and small-sample,
 positive result.
-**SHORT**: 31.6% win rate over 418 resolved trades → **-0.21R per trade
+**SHORT**: 34.6% win rate over 413 resolved trades → **-0.13R per trade
 before costs** — measurably negative, not merely "unvalidated." The report
-now states this plainly next to the short candidates rather than only
-flagging them as unvalidated.
+states this plainly next to the short candidates rather than only flagging
+them as unvalidated.
+
+That SHORT number itself moved once, for a documented reason:
+`processing/ml/short_selection_research.py` tested 3 SHORT candidate-
+selection rules (the naive "lowest technical_composite" rule production
+used before, "highest technical_composite," and "lowest technical_composite
+excluding already-oversold names") — all 3 remain net-negative, but
+excluding oversold names (the ones most prone to a mean-reversion bounce/
+short squeeze) measurably helps: -0.21R → -0.13R. Production now uses that
+better rule. It is still AVOID — a real, tested improvement was shipped,
+but it was never going to be dressed up as "shorts now work," because they
+don't, on any selection rule tested so far.
 
 Re-run it yourself with `python -m processing.ml.trade_mechanics_backtest`
 (regenerates `storage/models/trade_mechanics_backtest_report.json`, which

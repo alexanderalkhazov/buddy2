@@ -73,15 +73,18 @@ than leaving it as an open question: for each historical OOS rebalance
 date in the SAME walk-forward folds `sector_prediction_model.py:evaluate()`
 uses, it picks the exact ticker this ranking logic would have picked (the
 top-3-predicted sector's highest-technical-composite member for LONG,
-lowest for SHORT), computes the same ATR entry/stop/TP1
-(`processing/scoring.py:trade_levels()`), and walks forward day-by-day
-through REAL subsequent price bars to see whether TP1 or the stop was hit
-first. Measured result (~3 years, walk-forward OOS): **LONG 47.1% win rate
-/ +0.18R expectancy per trade before costs** (435 resolved trades) — a
-real, small-sample positive result — versus **SHORT 31.6% win rate /
--0.21R expectancy** (418 resolved trades) — measurably negative, not
-merely "unvalidated." The report states both numbers plainly, right next
-to the candidate tables they describe, rather than only as a disclaimer.
+lowest-excluding-already-oversold for SHORT — see
+`processing/ml/short_selection_research.py`, which tested 3 SHORT
+selection rules and found this the best, still-negative one), computes
+the same ATR entry/stop/TP1 (`processing/scoring.py:trade_levels()`), and
+walks forward day-by-day through REAL subsequent price bars to see
+whether TP1 or the stop was hit first. Measured result (~3 years,
+walk-forward OOS): **LONG 47.2% win rate / +0.18R expectancy per trade
+before costs** (430 resolved trades) — a real, small-sample positive
+result — versus **SHORT 34.6% win rate / -0.13R expectancy** (413 resolved
+trades) — measurably negative, not merely "unvalidated." The report
+states both numbers plainly, right next to the candidate tables they
+describe, rather than only as a disclaimer.
 Re-run with `python -m processing.ml.trade_mechanics_backtest`.
 
 ---

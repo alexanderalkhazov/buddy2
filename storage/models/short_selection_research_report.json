@@ -1,0 +1,41 @@
+{
+  "results": {
+    "baseline_lowest_tc": {
+      "strategy": "baseline_lowest_tc",
+      "n_trades_attempted": 468,
+      "n_resolved": 413,
+      "n_wins": 130,
+      "n_losses": 283,
+      "n_timeout": 55,
+      "win_rate_of_resolved": 0.3148,
+      "expectancy_r_per_trade": -0.213,
+      "expectancy_r_per_trade_cost_adjusted_base": -0.2474
+    },
+    "highest_tc": {
+      "strategy": "highest_tc",
+      "n_trades_attempted": 468,
+      "n_resolved": 430,
+      "n_wins": 143,
+      "n_losses": 287,
+      "n_timeout": 38,
+      "win_rate_of_resolved": 0.3326,
+      "expectancy_r_per_trade": -0.1685,
+      "expectancy_r_per_trade_cost_adjusted_base": -0.2068
+    },
+    "lowest_tc_not_oversold": {
+      "strategy": "lowest_tc_not_oversold",
+      "n_trades_attempted": 468,
+      "n_resolved": 413,
+      "n_wins": 143,
+      "n_losses": 270,
+      "n_timeout": 55,
+      "win_rate_of_resolved": 0.3462,
+      "expectancy_r_per_trade": -0.1345,
+      "expectancy_r_per_trade_cost_adjusted_base": -0.1701
+    }
+  },
+  "baseline_expectancy_r": -0.213,
+  "best_strategy": "lowest_tc_not_oversold",
+  "best_beats_baseline": true,
+  "note": "Tests whether the SHORT selection rule itself (not just the ATR stop/TP mechanics, already tested in trade_mechanics_backtest.py) can be improved. Only ships to production if a variant shows genuinely positive expectancy after the same scrutiny as every other feature this project has tested (not just 'better than baseline' \u2014 baseline is already negative)."
+}

@@ -438,6 +438,20 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 5) -> dict:
             tc = s.technical_composite
             nudge = ((tc - 50) / 50) * 0.10 * p_top3 if tc is not None else 0.0
 
+            # SHORT-only oversold exclusion — per processing/ml/short_selection_
+            # research.py, which found production's prior rule (favor the
+            # LOWEST technical_composite ticker) was actually the WORST of 3
+            # selection strategies tested: -0.213R/trade, vs. -0.135R/trade for
+            # this exact "exclude RSI14<35" rule (still negative — shorting
+            # isn't made profitable by this, just measurably less bad).
+            # Already-oversold names are the ones most prone to a mean-
+            # reversion bounce/short squeeze. Matches the TESTED rule exactly
+            # (hard exclusion from the candidate pool, not an invented soft
+            # penalty) — across the full 104-ticker universe a fallback for
+            # "every candidate excluded" isn't needed the way it was for the
+            # research script's small per-sector pools.
+            short_oversold_excluded = s.rsi14 is not None and s.rsi14 < 35
+
             long_levels = scoring.trade_levels(s.last, s.atr14, direction="long") if s.atr14 else {"error": "no ATR"}
             short_levels = scoring.trade_levels(s.last, s.atr14, direction="short") if s.atr14 else {"error": "no ATR"}
 
@@ -485,7 +499,8 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 5) -> dict:
                         pct_from_52w_low=s.pct_from_52w_low,
                     ),
                     "long_score": round(p_top3 + nudge, 4),
-                    "short_score": round((1 - p_top3) - nudge, 4),
+                    "short_score": 0.0 if short_oversold_excluded else round((1 - p_top3) - nudge, 4),
+                    "short_excluded_oversold": short_oversold_excluded,
                     "long_entry": long_levels.get("entry"),
                     "long_stop": long_levels.get("stop"),
                     "long_tp1": long_levels.get("take_profit_1"),
@@ -607,39 +622,40 @@ def generate(refresh: bool = False) -> str:
                 "stop/TP1 levels below are unvalidated arithmetic, not a backtested rule.*"
             )
 
-        lines.append("\n## TOP LONG CANDIDATES")
-        lines.append("| # | Ticker | Sector | P(top-3) | Entry | Stop | TP1 | RSI14 | Tech. Composite | Long Score |")
-        lines.append("|---|---|---|---|---|---|---|---|---|---|")
+        _long_mech_avoid = isinstance(_long_r, (int, float)) and _long_r < 0
+        _short_mech_avoid = isinstance(_short_r, (int, float)) and _short_r < 0
+
+        lines.append("\n## TOP LONG CANDIDATES" + ("  ⚠️ mechanics AVOID this direction" if _long_mech_avoid else ""))
+        lines.append("| # | Ticker | Sector | P(top-3) | Entry | Stop | TP1 | Long Score |")
+        lines.append("|---|---|---|---|---|---|---|---|")
         for i, r in enumerate(_pred["long"], 1):
             lines.append(
                 f"| {i} | {r['ticker']} | {r['sector'].replace('_', ' ').title()} | {_fmt(r['p_top3_sector'])} | "
-                f"{_fmt(r['long_entry'])} | {_fmt(r['long_stop'])} | {_fmt(r['long_tp1'])} | {_fmt(r['rsi14'])} | "
-                f"{_fmt(r['technical_composite'])} | {_fmt(r['long_score'])} |"
+                f"{_fmt(r['long_entry'])} | {_fmt(r['long_stop'])} | {_fmt(r['long_tp1'])} | {_fmt(r['long_score'])} |"
             )
 
-        lines.append("\n## TOP SHORT CANDIDATES")
-        lines.append("| # | Ticker | Sector | P(top-3) | Entry | Stop | TP1 | RSI14 | Tech. Composite | Short Score |")
-        lines.append("|---|---|---|---|---|---|---|---|---|---|")
+        lines.append("\n## TOP SHORT CANDIDATES" + ("  ⚠️ mechanics AVOID this direction" if _short_mech_avoid else ""))
+        lines.append("| # | Ticker | Sector | P(top-3) | Entry | Stop | TP1 | Short Score |")
+        lines.append("|---|---|---|---|---|---|---|---|")
         for i, r in enumerate(_pred["short"], 1):
             lines.append(
                 f"| {i} | {r['ticker']} | {r['sector'].replace('_', ' ').title()} | {_fmt(r['p_top3_sector'])} | "
-                f"{_fmt(r['short_entry'])} | {_fmt(r['short_stop'])} | {_fmt(r['short_tp1'])} | {_fmt(r['rsi14'])} | "
-                f"{_fmt(r['technical_composite'])} | {_fmt(r['short_score'])} |"
+                f"{_fmt(r['short_entry'])} | {_fmt(r['short_stop'])} | {_fmt(r['short_tp1'])} | {_fmt(r['short_score'])} |"
+            )
+        if _short_mech_avoid:
+            lines.append(
+                f"\n**Every SHORT candidate above is VERDICT: AVOID** — the trade-mechanics backtest "
+                f"measured {_fmt(_short_r)}R/trade expectancy for this exact mechanics (see below); that "
+                "measured fact caps every candidate regardless of its own indicators. Full reasoning per "
+                "ticker is in the detail sections below, but the bottom line here is the same for all 5."
             )
 
         lines.append(
-            "\n*Entry/Stop/TP1 are ATR-based arithmetic (2.0x ATR stop, 1.5R first target) — a common "
-            "convention, NOT calibrated to each ticker's own historical behavior, and NOT a position "
-            "size (no account size is known here). long_score = sector's calibrated P(top-3-of-13 by "
-            "20D return), nudged up to +/-10% by the ticker's OWN technical_composite (0-100, ten "
-            "indicator families: RSI momentum, Stochastic, ADX trend-strength signed by ROC direction, "
-            "Bollinger %B band position, MACD histogram sign, CCI, Ichimoku cloud position, Money Flow "
-            "Index, Aroon Oscillator, Keltner Channel position — "
-            "processing/indicators.py:technical_composite_score). short_score mirrors this on the "
-            "bearish side. Only the sector probability is walk-forward validated; the technical-"
-            "composite nudge is an unvalidated tiebreaker among tickers in the same sector, not a "
-            "second tested signal. These are RANKINGS, not probabilities of profit — the underlying "
-            "model's measured edge is modest (see Model reliability above)."
+            "\n*Entry/Stop/TP1 are ATR-based (2.0x ATR stop, 1.5R target), not calibrated to each "
+            "ticker's own history, and not a position size. Score = sector P(top-3-of-13, 20D, walk-"
+            "forward validated) nudged ±10% by the ticker's own technical_composite (10 indicator "
+            "families, unvalidated tiebreaker). RSI14/Tech.Composite/full detail are in each candidate's "
+            "section below — trimmed here to keep this table scannable."
         )
         lines.append(
             f"\n*Diversification: each table caps at {MAX_CANDIDATES_PER_SECTOR} candidates per sector "
@@ -698,101 +714,74 @@ def generate(refresh: bool = False) -> str:
                         f"alternative to the fixed stop, not a second signal about whether to take the trade.*"
                     )
 
+                n_confirm, n_conflict = _indicator_agreement_counts(r, direction)
                 lines.append("\n**WHY — what drove this candidate (indicators)**")
-                for reason in _indicator_reasons(r, direction):
-                    lines.append(f"- {reason}")
                 lines.append(
-                    f"- Sector-level model: {r['sector'].replace('_', ' ').title()} has a calibrated "
-                    f"P(top-3-of-13 sectors by 20D return) = {_fmt(r['p_top3_sector'])} from "
-                    f"sector_prediction_model (walk-forward measured AUC {_fmt(_rel.get('mean_oos_auc'))}, "
-                    f"a real but modest edge — see Model reliability above)."
+                    f"- **{n_confirm}/{n_confirm + n_conflict}** of the 10 technical indicator families "
+                    f"confirm this {direction} direction (all confirming ones agree with each other; "
+                    "conflicts, if any, are named below — nothing is cherry-picked out)."
+                )
+                for reason in _indicator_reasons(r, direction):
+                    if "CONFLICTS WITH" in reason:
+                        lines.append(f"- {reason}")
+                lines.append(
+                    f"- Sector model: {r['sector'].replace('_', ' ').title()} P(top-3-of-13, 20D) = "
+                    f"{_fmt(r['p_top3_sector'])} (AUC {_fmt(_rel.get('mean_oos_auc'))} — see Model reliability above)."
                 )
 
                 lines.append("\n**WHY — supporting news**")
                 news_result = _news_for_candidate(r["ticker"], direction, refresh=refresh)
                 if news_result.get("available"):
+                    surprise = " *(earnings beat/miss headline — PEAD, contested for large caps)*" if news_result.get("is_earnings_surprise") else ""
                     lines.append(
                         f"- \"{news_result['title']}\" — {news_result.get('source', 'unknown source')}, "
-                        f"{news_result.get('published_at', 'date unknown')}. Sentiment: **{news_result['sentiment']}** "
-                        f"— **{news_result['alignment']}**. ({news_result['n_articles_checked']} recent article(s) checked; "
-                        f"showing the most recent.)"
+                        f"{news_result.get('published_at', 'date unknown')}. **{news_result['sentiment']}**, "
+                        f"**{news_result['alignment']}**.{surprise}"
+                        + (f" [Source]({news_result['url']})" if news_result.get("url") else "")
                     )
-                    if news_result.get("url"):
-                        lines.append(f"  Source link: {news_result['url']}")
-                    if news_result.get("is_earnings_surprise"):
-                        lines.append(
-                            "  *This reads as an EARNINGS BEAT/MISS headline specifically, not general "
-                            "sentiment — post-earnings-announcement drift is one of the most-studied real "
-                            "anomalies in finance, though contested for large, liquid names like most "
-                            "candidates in this report (evidence for it weakening post-2006 outside "
-                            "microcaps). Treat this headline as a real, if disputed, event, not a stronger "
-                            "signal than the sentiment/alignment call above already gives it.*"
-                        )
                 else:
-                    lines.append(f"- No usable recent news found for {r['ticker']} this run ({news_result.get('reason') or news_result.get('error', 'unavailable')}).")
+                    lines.append(f"- No usable recent news found this run ({news_result.get('reason') or news_result.get('error', 'unavailable')}).")
 
-                lines.append("\n**WHEN — timing risk**")
                 when_result = _when_for_candidate(r["ticker"], r.get("as_of") or "", refresh=refresh)
-                if when_result.get("available"):
-                    sev = when_result.get("severity", "UNKNOWN")
-                    if sev in ("IMMEDIATE", "ELEVATED"):
-                        lines.append(f"- ⚠️ **{sev} earnings risk** — {when_result.get('note', '')}")
-                    elif sev == "APPROACHING":
-                        lines.append(f"- Earnings approaching — {when_result.get('note', '')}")
-                    elif sev == "NONE":
-                        lines.append("- No near-term earnings risk flagged — a normal window to consider entry timing on its own technical/news merits.")
-                    else:
-                        lines.append(f"- Earnings timing unknown: {when_result.get('note', '')}")
-                else:
-                    lines.append(f"- Earnings timing unavailable this run: {when_result.get('error', 'unknown error')}.")
-
-                lines.append("\n**WHEN — entry and exit timing**")
-                lines.append(
-                    f"- **Entry**: at the next regular market session (9:30am–4:00pm ET) — this system holds "
-                    f"daily bars only, so it cannot recommend a specific intraday minute; the {_fmt(r.get(entry_key))} "
-                    "entry above is yesterday's close, not a live quote, so expect the actual fill to differ. "
-                    "A limit order at that price, or simply entering at the next open, are the two honest options "
-                    "this data supports — anything more precise (e.g. \"buy at 10:32am\") would be invented, not computed."
-                )
+                sev = when_result.get("severity", "UNKNOWN") if when_result.get("available") else "UNKNOWN"
                 mean_days = _mean_days_held_by_direction.get(direction)
                 from processing.ml.trade_mechanics_backtest import MAX_HOLD_DAYS as _MAX_HOLD_DAYS
 
+                lines.append("\n**WHEN — earnings risk, entry, exit**")
+                if sev in ("IMMEDIATE", "ELEVATED"):
+                    lines.append(f"- ⚠️ **{sev} earnings risk** — {when_result.get('note', '')}")
+                elif sev == "APPROACHING":
+                    lines.append(f"- Earnings approaching — {when_result.get('note', '')}")
+                elif sev == "NONE":
+                    lines.append("- No near-term earnings risk.")
+                else:
+                    lines.append(f"- Earnings timing unavailable: {when_result.get('error', 'unknown')}.")
+                lines.append(
+                    f"- **Entry**: limit order at {_fmt(r.get(entry_key))} (yesterday's close, not a live quote), "
+                    "or simply the next market open — this system has no intraday data, so nothing more precise "
+                    "than that is honestly computable."
+                )
                 if mean_days is not None:
                     lines.append(
-                        f"- **Exit**: automatically at Stop ({_fmt(r.get(stop_key))}) or TP1 ({_fmt(r.get(tp1_key))}) "
-                        "above, whichever a broker's standing stop/limit orders trigger first — those execute "
-                        "continuously during market hours, not at a fixed clock time. If NEITHER has been hit after "
-                        f"**~{mean_days:.0f} trading days** (the measured average time-to-resolution for this exact "
-                        f"direction's mechanics, from the trade-mechanics backtest above), the position has "
-                        "outlasted where most resolved trades in that backtest already went one way or the other — "
-                        f"worth a discretionary look. By **{_MAX_HOLD_DAYS} trading days** with neither level hit, "
-                        f"the backtest itself would have called this a TIMEOUT (not counted as a win or loss), which "
-                        "is this system's own definition of \"this setup didn't play out as expected\" — a "
-                        "data-derived checkpoint to reassess, not a hard rule to close the position."
+                        f"- **Exit**: Stop {_fmt(r.get(stop_key))} or TP1 {_fmt(r.get(tp1_key))}, whichever "
+                        f"triggers first. Typical time-to-resolution: **~{mean_days:.0f} trading days**; by "
+                        f"**{_MAX_HOLD_DAYS} days** with neither hit, the backtest itself calls it a TIMEOUT — "
+                        "worth a discretionary look, not a hard close rule."
                     )
                 else:
-                    lines.append(
-                        f"- **Exit**: automatically at Stop ({_fmt(r.get(stop_key))}) or TP1 ({_fmt(r.get(tp1_key))}) "
-                        "above. Typical time-to-resolution is unavailable this run (trade-mechanics backtest not "
-                        "found) — run `python -m processing.ml.trade_mechanics_backtest` to generate it."
-                    )
+                    lines.append(f"- **Exit**: Stop {_fmt(r.get(stop_key))} or TP1 {_fmt(r.get(tp1_key))}, whichever triggers first.")
 
                 style = r.get("trade_style") or {}
                 if style:
-                    lines.append("\n**DAY TRADE OR SWING TRADE?**")
-                    lines.append(f"- **Verdict: {style['primary_recommendation']}** — {style['rationale']}")
-                    lines.append(f"- Swing-horizon fit: **{style['swing_fit']}**")
-                    for reason in style.get("swing_reasons", []):
-                        lines.append(f"  - {reason}")
                     lines.append(
-                        f"- Day-trade *candidacy* screen (liquidity + realized range, pending intraday "
-                        f"confirmation): **{style['day_trade_screen']}**"
+                        f"\n**DAY TRADE OR SWING?** Verdict: **{style['primary_recommendation']}** "
+                        f"(swing-fit {style['swing_fit']}, day-trade candidacy {style['day_trade_screen']}). "
+                        f"{style['rationale']}"
                     )
-                    for reason in style.get("day_trade_reasons", []):
-                        lines.append(f"  - {reason}")
-                    lines.append(f"  - *{style['day_trade_caveat']}*")
+                    anomalies = [r_ for r_ in style.get("day_trade_reasons", []) if "TODAY IS UNUSUAL" in r_]
+                    for a in anomalies:
+                        lines.append(f"- {a}")
 
-                n_confirm, n_conflict = _indicator_agreement_counts(r, direction)
                 verdict = scoring.conviction_verdict(
                     direction=direction,
                     n_indicators_confirm=n_confirm,
@@ -807,20 +796,7 @@ def generate(refresh: bool = False) -> str:
                 for reason in verdict["reasons"]:
                     lines.append(f"- {reason}")
                 if verdict["capped_by_measured_expectancy"]:
-                    lines.append(
-                        "- *This verdict is capped by measured historical mechanics, not by this "
-                        "candidate's own indicators/news/timing — even a candidate with strong-looking "
-                        "technicals inherits this cap, because the cap is about whether the entry/stop/TP1 "
-                        "convention itself has worked historically for this direction, not about this "
-                        "specific ticker.*"
-                    )
-
-                lines.append(
-                    "\n*This candidate's ranking is driven mainly by the sector-level probability above "
-                    "(the only walk-forward-validated part of this system). The indicator and news "
-                    "reasoning here are real, live-computed context — not a second backtested signal. "
-                    "Weigh accordingly.*"
-                )
+                    lines.append("- *Capped by measured trade-mechanics history, not this candidate's own indicators — see the backtest above.*")
 
     lines.append("\n---\n# SUPPORTING DATA")
 

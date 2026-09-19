@@ -7,9 +7,15 @@ This has never been measured anywhere else in this codebase. Every other
 metric in this project (AUC, Brier, calibration) evaluates the SECTOR
 probability alone. This evaluates the full chain a reader actually acts
 on: sector_prediction_model's OOS sector pick -> the highest-technical-
-composite member ticker in that sector (mirroring ui/market_report.py's
-long_score ranking, since nudge is monotonic in technical_composite within
-a fixed sector) -> processing/scoring.py's ATR-based entry/stop/TP1/TP2.
+composite member ticker in that sector for LONG (mirroring ui/market_
+report.py's long_score ranking, since nudge is monotonic in technical_
+composite within a fixed sector); for SHORT, the LOWEST-technical-
+composite ticker EXCLUDING already-oversold names (RSI14<35) — per
+short_selection_research.py, which tested 3 selection rules and found
+this one measurably better than the naive lowest-technical-composite rule
+(still negative expectancy, just less negative; already-oversold names
+are the ones most prone to a mean-reversion bounce/short squeeze) ->
+processing/scoring.py's ATR-based entry/stop/TP1/TP2.
 
 Point-in-time discipline: for each OOS test date in each walk-forward fold
 (the SAME folds/embargo sector_prediction_model.py:evaluate() uses — this
@@ -85,19 +91,21 @@ def _get_enriched(ticker: str) -> pd.DataFrame | None:
     return _ENRICHED_CACHE[ticker]
 
 
-def _technical_composite_asof(ticker: str, as_of: pd.Timestamp) -> tuple[float | None, float | None, float | None]:
-    """Point-in-time technical_composite, last close, and ATR14 for `ticker`
-    as of the most recent bar <= `as_of` — never a later bar. Returns
-    (None, None, None) if the ticker has no usable data at that date."""
+def _technical_composite_asof(ticker: str, as_of: pd.Timestamp) -> tuple[float | None, float | None, float | None, float | None]:
+    """Point-in-time technical_composite, last close, ATR14, and rsi14 for
+    `ticker` as of the most recent bar <= `as_of` — never a later bar.
+    Returns (None, None, None, None) if the ticker has no usable data at
+    that date. rsi14 is used by run_backtest()'s SHORT selection to exclude
+    already-oversold candidates — see short_selection_research.py."""
     enriched = _get_enriched(ticker)
     if enriched is None:
-        return None, None, None
+        return None, None, None, None
     truncated = enriched[enriched.index <= as_of]
     if len(truncated) < 60:
-        return None, None, None
+        return None, None, None, None
     valid = truncated.dropna(subset=["close"])
     if valid.empty:
-        return None, None, None
+        return None, None, None, None
     row = valid.iloc[-1]
     close = float(row["close"])
     cloud = ichimoku_cloud_position(
@@ -119,7 +127,8 @@ def _technical_composite_asof(ticker: str, as_of: pd.Timestamp) -> tuple[float |
         keltner_pctk=None if pd.isna(row.get("keltner_pctk")) else float(row["keltner_pctk"]),
     )
     atr14 = None if pd.isna(row.get("atr14")) else float(row["atr14"])
-    return tc, close, atr14
+    rsi14 = None if pd.isna(row.get("rsi14")) else float(row["rsi14"])
+    return tc, close, atr14, rsi14
 
 
 def _resolve_trade(ticker: str, entry_date: pd.Timestamp, entry: float, stop: float, tp1: float, direction: str) -> dict:
@@ -188,17 +197,29 @@ def run_backtest(direction: str = "long", max_dates_per_fold: int | None = None)
             for sector in picked_sectors:
                 candidates = []
                 for ticker in EXPANDED_UNIVERSE_V2[sector]:
-                    tc, close, atr14 = _technical_composite_asof(ticker, pd.Timestamp(as_of))
+                    tc, close, atr14, rsi14 = _technical_composite_asof(ticker, pd.Timestamp(as_of))
                     if tc is None or close is None or atr14 is None or atr14 <= 0:
                         continue
-                    candidates.append((tc, ticker, close, atr14))
+                    candidates.append((tc, ticker, close, atr14, rsi14))
                 if not candidates:
                     continue
+                if direction == "short":
+                    # SHORT-only oversold exclusion — per short_selection_
+                    # research.py, which found this the best of 3 tested
+                    # selection rules (-0.135R/trade vs. -0.213R/trade for the
+                    # naive lowest-technical-composite rule, still measured
+                    # here below — still negative, just measurably less bad;
+                    # already-oversold names are the ones most prone to a
+                    # mean-reversion bounce/short squeeze). Falls back to the
+                    # full pool only if every candidate in this sector is
+                    # oversold, matching the tested rule exactly.
+                    not_oversold = [c for c in candidates if c[4] is None or c[4] >= 35]
+                    candidates = not_oversold or candidates
                 # Highest technical_composite for long, lowest for short —
                 # mirrors long_score/short_score's monotonic-in-technical_
                 # composite ranking within an already-fixed sector.
                 candidates.sort(key=lambda c: c[0], reverse=(direction == "long"))
-                tc, ticker, close, atr14 = candidates[0]
+                tc, ticker, close, atr14, rsi14 = candidates[0]
 
                 levels = scoring.trade_levels(close, atr14, direction=direction)
                 if "error" in levels:
