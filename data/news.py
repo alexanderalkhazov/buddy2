@@ -63,19 +63,38 @@ def _from_newsapi(ticker: str, company_name: str | None, lookback_hours: int) ->
     ]
 
 
-def _from_yfinance(ticker: str) -> list[dict]:
+def _from_yfinance(ticker: str, lookback_hours: int) -> list[dict]:
+    """yfinance's own .news list carries no documented recency guarantee — it
+    can and does include items older than any requested lookback window.
+    The NewsAPI path (_from_newsapi) filters server-side via its own "from"
+    param; this path must apply the SAME lookback_hours cutoff itself,
+    client-side, or a caller asking for "72h lookback" could silently get
+    week-old news back whenever the NewsAPI key isn't configured — which is
+    the DEFAULT path this project documents (no API key required to run
+    it), so this isn't an edge case, it's the common path."""
+    since = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
     out = []
     for item in yf.Ticker(ticker).news or []:
         content = item.get("content", item)
         url = (content.get("canonicalUrl") or {}).get("url") or content.get("link")
         if not content.get("title") or not url:
             continue
+        pub_date = content.get("pubDate")
+        if pub_date:
+            try:
+                pub_dt = datetime.fromisoformat(str(pub_date).replace("Z", "+00:00"))
+                if pub_dt.tzinfo is None:
+                    pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+                if pub_dt < since:
+                    continue
+            except ValueError:
+                pass  # unparseable date — keep the article rather than silently drop it over a format we don't recognize
         out.append(
             {
                 "title": content["title"],
                 "url": url,
                 "source": (content.get("provider") or {}).get("displayName"),
-                "published_at": content.get("pubDate"),
+                "published_at": pub_date,
                 "body": content.get("summary") or "",
             }
         )
@@ -190,7 +209,7 @@ def fetch_news(
     articles = (
         _from_newsapi(ticker, company_name, lookback_hours)
         if config.NEWSAPI_KEY
-        else _from_yfinance(ticker)
+        else _from_yfinance(ticker, lookback_hours)
     )
 
     articles = _dedupe_by_url(articles)
