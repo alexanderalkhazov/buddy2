@@ -349,6 +349,8 @@ def conviction_verdict(
     earnings_severity: str | None,
     swing_fit: str | None,
     historical_expectancy_r: float | None,
+    sector_has_edge: bool | None = None,
+    sector_clears_margin: bool | None = None,
 ) -> dict:
     """A single combined verdict — STRONG / MODERATE / WEAK / AVOID — that
     actually GATES on the measured trade-mechanics backtest
@@ -366,10 +368,17 @@ def conviction_verdict(
     families that fed technical_composite actually confirm this direction,
     not just the composite's own scalar), earnings-proximity severity (an
     IMMEDIATE/ELEVATED earnings gap can invalidate the whole ATR-stop
-    premise), and the day-trade/swing suitability screen's own swing_fit
+    premise), the day-trade/swing suitability screen's own swing_fit
     (this system's validated horizon is the 20-day swing one; a POOR fit
     there means the candidate doesn't suit the horizon this system
-    actually has evidence for)."""
+    actually has evidence for), and sector_has_edge — whether this
+    candidate's OWN sector probability clears
+    sector_prediction_model.py:abstention_gate()'s calibration-based test,
+    i.e. whether it's actually demonstrated separation from the base rate
+    in OOS testing, not just a numerically-higher probability. This was a
+    real gap until now: the abstention gate existed but fed nothing into
+    this verdict, so a candidate could show STRONG even when its own
+    sector's probability wasn't distinguishable from noise."""
     reasons = []
 
     # --- Hard gate: measured mechanics expectancy -------------------------
@@ -419,6 +428,15 @@ def conviction_verdict(
 
     if historical_expectancy_r is not None and historical_expectancy_r >= 0:
         reasons.append(f"Walk-forward backtest measured POSITIVE expectancy ({historical_expectancy_r:+.2f}R/trade, before costs) for this mechanics on historical data — real but small-sample, not a guarantee.")
+
+    if sector_has_edge is False:
+        score -= 1
+        reasons.append("This candidate's OWN sector probability does NOT clear the abstention gate — it hasn't demonstrated separation from the base rate in OOS calibration testing, even though it's numerically the highest-ranked sector this run.")
+    elif sector_has_edge and sector_clears_margin:
+        score += 1
+        reasons.append("This candidate's sector probability clears the abstention gate with margin — a confidently separated, not just numerically-higher, probability.")
+    elif sector_has_edge:
+        reasons.append("This candidate's sector probability clears the abstention gate on a point-estimate basis, though within its own margin of error — a real but unremarkable signal, not decisive.")
 
     if score >= 3:
         verdict = "STRONG"

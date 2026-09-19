@@ -188,6 +188,16 @@ point system rather than a black box:
 - Earnings-proximity severity (IMMEDIATE/ELEVATED subtracts; APPROACHING
   subtracts less).
 - Swing-fit (GOOD adds, POOR subtracts).
+- **Sector abstention status** (`sector_has_edge`/`sector_clears_margin`,
+  from `sector_prediction_model.py:abstention_gate()`) — whether this
+  candidate's OWN sector probability has actually demonstrated separation
+  from the base rate in OOS calibration testing this run, not just
+  whether it's numerically the highest-ranked sector. A sector that fails
+  the abstention gate subtracts a point even if it's still the top-ranked
+  pick among 13. This closed a real gap: the abstention gate existed
+  before this fed into VERDICT at all, so a candidate could show STRONG
+  purely on indicator/earnings/swing-fit points while its own sector's
+  probability wasn't distinguishable from noise.
 - **A hard gate**: if the trade-mechanics backtest (Step 1.5 above)
   measured NEGATIVE expectancy for this direction, the verdict is capped
   at AVOID regardless of every other point above. This is deliberate — a

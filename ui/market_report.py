@@ -418,6 +418,7 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 5) -> dict:
 
     rocket = predict_next_move(refresh=refresh)
     sector_prob = {p["sector"]: p.get("p_top3_ensemble", 0.0) for p in rocket.get("predictions_all_13_sectors", []) if "error" not in p}
+    sector_edge = {p["sector"]: p for p in rocket.get("predictions_all_13_sectors", []) if "error" not in p}
     reliability = rocket.get("model_oos_reliability", {})
 
     rows = []
@@ -466,6 +467,8 @@ def _ranked_predictions(refresh: bool = False, top_n: int = 5) -> dict:
                     # is right. See §33-style separation in HOW_REPORT_WORKS.md.
                     "chandelier_long_stop": s.chandelier_long_stop,
                     "chandelier_short_stop": s.chandelier_short_stop,
+                    "sector_has_edge": sector_edge.get(sector, {}).get("has_edge"),
+                    "sector_clears_margin": (sector_edge.get(sector, {}).get("edge_gate") or {}).get("clears_margin_of_error"),
                     "technical_composite": tc,
                     "trend": s.trend,
                     "trade_style": scoring.trade_style_fit(
@@ -762,6 +765,8 @@ def generate(refresh: bool = False) -> str:
                     earnings_severity=when_result.get("severity") if when_result.get("available") else None,
                     swing_fit=style.get("swing_fit"),
                     historical_expectancy_r=_expectancy_by_direction.get(direction),
+                    sector_has_edge=r.get("sector_has_edge"),
+                    sector_clears_margin=r.get("sector_clears_margin"),
                 )
                 lines.append(f"\n**VERDICT: {verdict['verdict']}**")
                 for reason in verdict["reasons"]:
