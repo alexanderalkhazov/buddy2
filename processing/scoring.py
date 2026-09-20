@@ -248,9 +248,9 @@ def earnings_proximity_risk(as_of: str | None, next_earnings_date: str | None) -
     elif days <= 1:
         severity, label = "IMMEDIATE", "Earnings report is imminent (today or tomorrow, relative to the latest available price). A stop-loss computed from ATR does not account for an overnight/after-close earnings gap — price can open beyond the stop with no fill available at that level."
     elif days <= 6:
-        severity, label = "ELEVATED", "Earnings report is within the next week. Historical implied volatility and realized moves typically rise into an earnings date — this system has no options/IV data or historical earnings-reaction-size lookup, so factor in extra uncertainty around the stop/TP levels above rather than assuming normal (non-event) behavior."
+        severity, label = "ELEVATED", "Earnings report is within the next week. Historical implied volatility and realized moves typically rise into an earnings date — this system has no options/IV data, so factor in extra uncertainty around the stop/TP levels above rather than assuming normal (non-event) behavior. (If this ticker has enough reported-earnings history, its own past reaction sizes are shown below.)"
     elif days <= 14:
-        severity, label = "APPROACHING", "Earnings report is within two weeks. Not immediate, but this system has no historical earnings-reaction data to check — don't assume normal (non-event) price behavior between now and the report."
+        severity, label = "APPROACHING", "Earnings report is within two weeks. Not immediate, but don't assume normal (non-event) price behavior between now and the report. (If this ticker has enough reported-earnings history, its own past reaction sizes are shown below.)"
     else:
         severity, label = "NONE", "No earnings report expected in the near term based on next_earnings_date."
 

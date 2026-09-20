@@ -381,6 +381,32 @@ def _when_for_candidate(ticker: str, as_of: str, refresh: bool = False) -> dict:
     return {"available": True, **proximity}
 
 
+def _earnings_reaction_summary(ticker: str) -> str | None:
+    """One-line, real (not estimated) historical earnings-reaction summary
+    — median 1-day move and how often it was positive, over this ticker's
+    own last N reported earnings dates. Only called when earnings risk is
+    already flagged as live (IMMEDIATE/ELEVATED/APPROACHING) — the common
+    case (no near-term earnings) has no use for it, so this avoids an
+    extra fetch on every single candidate for data that matters for only
+    some of them."""
+    from data.fundamentals import earnings_reaction_history
+
+    try:
+        r = earnings_reaction_history(ticker)
+    except Exception:
+        return None
+    if r.get("error"):
+        return None
+    agg1d = r.get("aggregate", {}).get("return_1d", {})
+    if not agg1d.get("n"):
+        return None
+    return (
+        f"Historically (last {agg1d['n']} reported earnings): median 1-day move "
+        f"**{agg1d['median_pct']:+.1f}%**, positive {agg1d['positive_pct_of_events']:.0f}% of the time — "
+        "real past reactions, not a forecast of this one."
+    )
+
+
 def _diversified_top_n(rows: list[dict], score_key: str, top_n: int, max_per_sector: int = MAX_CANDIDATES_PER_SECTOR) -> list[dict]:
     """Greedily takes the top_n highest-scoring rows, capping how many can
     come from the same sector — otherwise the ranking (correctly, since
@@ -786,8 +812,14 @@ def generate(refresh: bool = False) -> str:
                 lines.append("\n**WHEN — earnings risk, entry, exit**")
                 if sev in ("IMMEDIATE", "ELEVATED"):
                     lines.append(f"- ⚠️ **{sev} earnings risk** — {when_result.get('note', '')}")
+                    reaction_summary = _earnings_reaction_summary(r["ticker"])
+                    if reaction_summary:
+                        lines.append(f"  - {reaction_summary}")
                 elif sev == "APPROACHING":
                     lines.append(f"- Earnings approaching — {when_result.get('note', '')}")
+                    reaction_summary = _earnings_reaction_summary(r["ticker"])
+                    if reaction_summary:
+                        lines.append(f"  - {reaction_summary}")
                 elif sev == "NONE":
                     lines.append("- No near-term earnings risk.")
                 else:
