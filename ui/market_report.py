@@ -21,7 +21,7 @@ import pandas as pd
 
 from data import edgar, macro as macro_mod_data
 from data import news
-from data.fundamentals import fetch_fundamentals
+from data.fundamentals import eps_revision_history, fetch_fundamentals
 from processing import macro as macro_mod
 from processing import news_proc, regime, scoring
 from processing.indicators import snapshot as price_snapshot
@@ -405,6 +405,23 @@ def _earnings_reaction_summary(ticker: str) -> str | None:
         f"**{agg1d['median_pct']:+.1f}%**, positive {agg1d['positive_pct_of_events']:.0f}% of the time — "
         "real past reactions, not a forecast of this one."
     )
+
+
+def _eps_revision_summary(ticker: str) -> dict:
+    """Whether analysts have been moving their forward-EPS estimate lately, and
+    which direction — a stable multi-quarter consensus is a different claim than
+    one that just moved 20% in 90 days, and a single current-forward-EPS number
+    can't show that on its own. Always rendered (never silently dropped) per this
+    report's convention — unavailability is reported as such, not omitted."""
+    try:
+        r = eps_revision_history(ticker)
+    except Exception as exc:
+        return {"available": False, "error": str(exc)[:150]}
+    if r.get("error"):
+        return {"available": False, "reason": r["error"][:150]}
+    if not r.get("stability_note"):
+        return {"available": False, "reason": "insufficient revision history for this ticker/period"}
+    return {"available": True, "note": r["stability_note"]}
 
 
 def _diversified_top_n(rows: list[dict], score_key: str, top_n: int, max_per_sector: int = MAX_CANDIDATES_PER_SECTOR) -> list[dict]:
@@ -803,6 +820,13 @@ def generate(refresh: bool = False) -> str:
                         lines.append(f"- {f['form']}, filed {f['filed']}.{link}")
                 else:
                     lines.append(f"- {filings_result.get('reason') or filings_result.get('error', 'unavailable')}.")
+
+                eps_rev = _eps_revision_summary(r["ticker"])
+                lines.append("**WHY — analyst EPS revisions** (has the forward-EPS consensus been moving, and which way)")
+                if eps_rev.get("available"):
+                    lines.append(f"- {eps_rev['note']}")
+                else:
+                    lines.append(f"- {eps_rev.get('reason') or eps_rev.get('error', 'unavailable')}.")
 
                 when_result = _when_for_candidate(r["ticker"], r.get("as_of") or "", refresh=refresh)
                 sev = when_result.get("severity", "UNKNOWN") if when_result.get("available") else "UNKNOWN"
