@@ -696,6 +696,98 @@ def generate(refresh: bool = False) -> str:
         _long_mech_avoid = isinstance(_long_r, (int, float)) and _long_r < 0
         _short_mech_avoid = isinstance(_short_r, (int, float)) and _short_r < 0
 
+        try:
+            _tm_expectancy = json.loads(_TRADE_MECHANICS_REPORT_PATH.read_text())
+            _expectancy_by_direction = {
+                d: _tm_expectancy.get(d, {}).get("expectancy_r_per_trade") for d in ("long", "short")
+            }
+            _mean_days_held_by_direction = {
+                d: _tm_expectancy.get(d, {}).get("mean_days_held_resolved") for d in ("long", "short")
+            }
+        except Exception:
+            _expectancy_by_direction = {"long": None, "short": None}
+            _mean_days_held_by_direction = {"long": None, "short": None}
+
+        # ---- Precompute each candidate's verdict + earnings timing ONCE, ----
+        # up front — pure math/logic (conviction_verdict, trade_style_fit),
+        # zero AI involvement anywhere in this system. Cached on the row so
+        # the detailed cards further below reuse it instead of recomputing.
+        for _direction in ("long", "short"):
+            for _r in _pred[_direction]:
+                _n_confirm, _n_conflict = _indicator_agreement_counts(_r, _direction)
+                _when_result = _when_for_candidate(_r["ticker"], _r.get("as_of") or "", refresh=refresh)
+                _style = _r.get("trade_style") or {}
+                _r["_n_confirm"], _r["_n_conflict"] = _n_confirm, _n_conflict
+                _r["_when_result"] = _when_result
+                _r["_verdict"] = scoring.conviction_verdict(
+                    direction=_direction,
+                    n_indicators_confirm=_n_confirm,
+                    n_indicators_conflict=_n_conflict,
+                    earnings_severity=_when_result.get("severity") if _when_result.get("available") else None,
+                    swing_fit=_style.get("swing_fit"),
+                    historical_expectancy_r=_expectancy_by_direction.get(_direction),
+                    sector_has_edge=_r.get("sector_has_edge"),
+                    sector_clears_margin=_r.get("sector_clears_margin"),
+                )
+
+        # ---- TODAY'S TRADE DECISIONS — the actionable output this report ----
+        # exists to produce: one row per candidate whose verdict actually
+        # clears AVOID, computed from the exact same math shown in detail
+        # below. No AI reads or writes this table — it's built directly from
+        # conviction_verdict()/trade_style_fit()'s own return values.
+        _entry_keys = {"long": "long_entry", "short": "short_entry"}
+        _stop_keys = {"long": "long_stop", "short": "short_stop"}
+        _tp1_keys = {"long": "long_tp1", "short": "short_tp1"}
+        _score_keys = {"long": "long_score", "short": "short_score"}
+        _action_labels = {"long": "BUY", "short": "SELL SHORT"}
+
+        _decision_rows = []
+        for _direction in ("long", "short"):
+            for _r in _pred[_direction]:
+                _v = _r["_verdict"]
+                if _v["verdict"] == "AVOID":
+                    continue
+                _style = _r.get("trade_style") or {}
+                _decision_rows.append(
+                    {
+                        "ticker": _r["ticker"],
+                        "action": _action_labels[_direction],
+                        "entry": _r.get(_entry_keys[_direction]),
+                        "stop": _r.get(_stop_keys[_direction]),
+                        "tp1": _r.get(_tp1_keys[_direction]),
+                        "style": _style.get("primary_recommendation", "n/a"),
+                        "confidence": _v["verdict"],
+                        "why": _v["reasons"][0] if _v["reasons"] else "n/a",
+                        "score": _r.get(_score_keys[_direction]) or 0,
+                    }
+                )
+        _decision_rows.sort(key=lambda d: d["score"], reverse=True)
+
+        lines.append("\n## TODAY'S TRADE DECISIONS — pure math/logic, computed directly by this system (no AI)")
+        if not _decision_rows:
+            lines.append(
+                "**No qualifying trades this run.** Every LONG and SHORT candidate below is capped at "
+                "VERDICT: AVOID — see each one's own Why/When/How section for the specific reason (usually "
+                "the measured trade-mechanics expectancy or the abstention gate). 'Nothing clears the bar "
+                "today' is the honest output of the same math that would otherwise fill this table, not a "
+                "missing feature."
+            )
+        else:
+            lines.append("| Ticker | Action | Entry | Stop | Take-Profit | Trade Style | Confidence | Why |")
+            lines.append("|---|---|---|---|---|---|---|---|")
+            for d in _decision_rows:
+                lines.append(
+                    f"| {d['ticker']} | **{d['action']}** | {_fmt(d['entry'])} | {_fmt(d['stop'])} | "
+                    f"{_fmt(d['tp1'])} | {d['style']} | {d['confidence']} | {d['why']} |"
+                )
+            lines.append(
+                "\n*Entry = limit order at the latest close (or simply the next market open); Stop/Take-"
+                "Profit are fixed ATR-based levels. Trade Style is SWING or NEITHER_WELL_SUITED — this "
+                "system has no tested intraday edge, so a DAY_TRADE style never appears here. Full "
+                "reasoning for every row is in that ticker's own Why/When/How section below — this table "
+                "is a summary of that computation, not a separate opinion.*"
+            )
+
         lines.append("\n## TOP LONG CANDIDATES" + ("  ⚠️ mechanics AVOID this direction" if _long_mech_avoid else ""))
         lines.append("| # | Ticker | Sector | P(top-3) | Entry | Stop | TP1 | Long Score |")
         lines.append("|---|---|---|---|---|---|---|---|")
@@ -744,18 +836,6 @@ def generate(refresh: bool = False) -> str:
             )
         )
 
-        try:
-            _tm_expectancy = json.loads(_TRADE_MECHANICS_REPORT_PATH.read_text())
-            _expectancy_by_direction = {
-                d: _tm_expectancy.get(d, {}).get("expectancy_r_per_trade") for d in ("long", "short")
-            }
-            _mean_days_held_by_direction = {
-                d: _tm_expectancy.get(d, {}).get("mean_days_held_resolved") for d in ("long", "short")
-            }
-        except Exception:
-            _expectancy_by_direction = {"long": None, "short": None}
-            _mean_days_held_by_direction = {"long": None, "short": None}
-
         # ---- Why / When / How — one detailed section per candidate ----------
         for label, direction, entry_key, stop_key, tp1_key in (
             ("LONG", "long", "long_entry", "long_stop", "long_tp1"),
@@ -785,7 +865,30 @@ def generate(refresh: bool = False) -> str:
                         f"alternative to the fixed stop, not a second signal about whether to take the trade.*"
                     )
 
-                n_confirm, n_conflict = _indicator_agreement_counts(r, direction)
+                n_confirm, n_conflict = r["_n_confirm"], r["_n_conflict"]
+                verdict = r["_verdict"]
+
+                if direction == "short" and _short_mech_avoid:
+                    # SHORT is capped AVOID by the measured trade-mechanics backtest this
+                    # run (see top of report) — full news/filings/EPS-revision/earnings-
+                    # timing research below is data nobody can act on for these 5 names,
+                    # so this stays a compact summary instead of the full LONG-style card.
+                    lines.append(
+                        f"\n**{n_confirm}/{n_confirm + n_conflict}** of the 10 technical indicator families "
+                        f"confirm this short direction — technical_composite **{_fmt(r.get('technical_composite'))}/100**, "
+                        f"RSI14 **{_fmt(r.get('rsi14'))}**."
+                    )
+                    lines.append(
+                        f"- Sector model: {r['sector'].replace('_', ' ').title()} P(top-3-of-13, 20D) = "
+                        f"{_fmt(r['p_top3_sector'])} (AUC {_fmt(_rel.get('mean_oos_auc'))} — see Model reliability above)."
+                    )
+                    lines.append(f"\n**VERDICT: {verdict['verdict']}**")
+                    for reason in verdict["reasons"]:
+                        lines.append(f"- {reason}")
+                    if verdict["capped_by_measured_expectancy"]:
+                        lines.append("- *Capped by measured trade-mechanics history, not this candidate's own indicators — see the backtest above.*")
+                    continue
+
                 lines.append("\n**WHY — what drove this candidate (indicators)**")
                 lines.append(
                     f"- **{n_confirm}/{n_confirm + n_conflict}** of the 10 technical indicator families "
@@ -829,7 +932,7 @@ def generate(refresh: bool = False) -> str:
                 else:
                     lines.append(f"- {eps_rev.get('reason') or eps_rev.get('error', 'unavailable')}.")
 
-                when_result = _when_for_candidate(r["ticker"], r.get("as_of") or "", refresh=refresh)
+                when_result = r["_when_result"]
                 sev = when_result.get("severity", "UNKNOWN") if when_result.get("available") else "UNKNOWN"
                 mean_days = _mean_days_held_by_direction.get(direction)
                 from processing.ml.trade_mechanics_backtest import MAX_HOLD_DAYS as _MAX_HOLD_DAYS
@@ -878,16 +981,6 @@ def generate(refresh: bool = False) -> str:
                     if style.get("day_trade_caveat"):
                         lines.append(f"- *{style['day_trade_caveat']}*")
 
-                verdict = scoring.conviction_verdict(
-                    direction=direction,
-                    n_indicators_confirm=n_confirm,
-                    n_indicators_conflict=n_conflict,
-                    earnings_severity=when_result.get("severity") if when_result.get("available") else None,
-                    swing_fit=style.get("swing_fit"),
-                    historical_expectancy_r=_expectancy_by_direction.get(direction),
-                    sector_has_edge=r.get("sector_has_edge"),
-                    sector_clears_margin=r.get("sector_clears_margin"),
-                )
                 lines.append(f"\n**VERDICT: {verdict['verdict']}**")
                 for reason in verdict["reasons"]:
                     lines.append(f"- {reason}")
