@@ -400,9 +400,10 @@ def _earnings_reaction_summary(ticker: str) -> str | None:
     agg1d = r.get("aggregate", {}).get("return_1d", {})
     if not agg1d.get("n"):
         return None
+    median_pct = agg1d["median_pct"] + 0.0  # normalize -0.0 -> 0.0, a rounding artifact, not a real negative move
     return (
         f"Historically (last {agg1d['n']} reported earnings): median 1-day move "
-        f"**{agg1d['median_pct']:+.1f}%**, positive {agg1d['positive_pct_of_events']:.0f}% of the time — "
+        f"**{median_pct:+.1f}%**, positive {agg1d['positive_pct_of_events']:.0f}% of the time — "
         "real past reactions, not a forecast of this one."
     )
 
@@ -810,7 +811,7 @@ def generate(refresh: bool = False) -> str:
                         + (f" [Source]({news_result['url']})" if news_result.get("url") else "")
                     )
                 else:
-                    lines.append(f"- No usable recent news found this run ({news_result.get('reason') or news_result.get('error', 'unavailable')}).")
+                    lines.append(f"- No usable recent news this run: {news_result.get('reason') or news_result.get('error', 'unavailable')}.")
 
                 filings_result = _filings_for_candidate(r["ticker"])
                 lines.append("**WHY — recent SEC filings** (primary-source, the company's own disclosure — not third-party reporting)")

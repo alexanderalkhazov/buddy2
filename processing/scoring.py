@@ -188,7 +188,7 @@ def trade_style_fit(
     if swing_verdict in ("GOOD_SWING_FIT", "WORKABLE_SWING_FIT"):
         primary = "SWING"
         rationale = (
-            "and note this is the only horizon this system has evidence for: the ranking that "
+            "This is the only horizon this system has evidence for: the ranking that "
             "surfaced this candidate is a 20-trading-day sector signal, so the intended hold is weeks, "
             "not hours or months."
         )
