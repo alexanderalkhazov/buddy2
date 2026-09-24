@@ -761,6 +761,11 @@ def generate(refresh: bool = False, full: bool = False) -> str:
                         "entry": _r.get(_entry_keys[_direction]),
                         "stop": _r.get(_stop_keys[_direction]),
                         "tp1": _r.get(_tp1_keys[_direction]),
+                        "max_entry": (
+                            (_r.get(_stop_keys[_direction]) + _r.get(_tp1_keys[_direction])) / 2
+                            if _r.get(_stop_keys[_direction]) is not None and _r.get(_tp1_keys[_direction]) is not None
+                            else None
+                        ),
                         "style": _style.get("primary_recommendation", "n/a"),
                         "confidence": _v["verdict"],
                         "why": _v["reasons"][0] if _v["reasons"] else "n/a",
@@ -782,14 +787,15 @@ def generate(refresh: bool = False, full: bool = False) -> str:
                 "each was rejected, so you can see exactly what the math looked at and why it said no — "
                 "'nothing clears the bar today' is the honest output here, not a missing row."
             )
-        lines.append("| Ticker | Action | Entry | Stop | Take-Profit | Trade Style | Confidence | Why |")
-        lines.append("|---|---|---|---|---|---|---|---|")
+        lines.append("| Ticker | Action | Entry | Max entry (skip if price is past this) | Stop | Take-Profit | Trade Style | Confidence | Why |")
+        lines.append("|---|---|---|---|---|---|---|---|---|")
         for d in _decision_rows:
             lines.append(
-                f"| {d['ticker']} | **{d['action']}** | {_fmt(d['entry'])} | {_fmt(d['stop'])} | "
+                f"| {d['ticker']} | **{d['action']}** | {_fmt(d['entry'])} | {_fmt(d['max_entry'])} | {_fmt(d['stop'])} | "
                 f"{_fmt(d['tp1'])} | {d['style']} | {d['confidence']} | {d['why']} |"
             )
         lines.append(
+            f"\n**These levels are from the {now} report's last close and go stale.** Place a LIMIT order at Entry; never a market order. If the live price is already past Max entry (where reward:risk falls to 1:1), skip the trade and wait for the next report.\n"
             "\n*Entry = limit order at the latest close (or simply the next market open); Stop/Take-"
             "Profit are fixed ATR-based levels — shown even on AVOID rows so you can see exactly what "
             "the rejected trade would have looked like, NOT a recommendation to take it. AVOID means this "
